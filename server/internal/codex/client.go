@@ -56,6 +56,28 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
+// Health 探测 worker 是否可用（app 健康轮询用，短超时）。
+func (c *Client) Health() error {
+	if !c.Enabled() {
+		return fmt.Errorf("codex not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/healthz", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.hc.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("codex healthz status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // Enabled 是否配置了 codex-worker。
 func (c *Client) Enabled() bool { return c != nil && c.baseURL != "" }
 

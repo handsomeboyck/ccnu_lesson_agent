@@ -5,6 +5,13 @@
 # ============ sandbox ============
 FROM python:3.12-slim AS sandbox
 
+# 切阿里云 debian 源加速 apt
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources; \
+    else \
+      sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list; \
+    fi
+
 # tesseract OCR（含简体中文）用于扫描件解析
 RUN apt-get update && apt-get install -y --no-install-recommends \
       tesseract-ocr tesseract-ocr-chi-sim libgl1 libglib2.0-0 \
@@ -30,8 +37,9 @@ RUN go mod download
 COPY server/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/codex-worker ./cmd/codex
 
-FROM alpine:3.20
-RUN apk add --no-cache docker-cli ca-certificates
+FROM alpine:3.20 AS worker
+RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories && \
+    apk add --no-cache docker-cli ca-certificates
 COPY --from=build /out/codex-worker /usr/local/bin/codex-worker
 EXPOSE 9090
 CMD ["codex-worker"]

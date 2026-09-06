@@ -63,6 +63,11 @@ services:
       - /opt/ccnu_codex_jobs:/opt/ccnu_codex_jobs  # 宿主共享作业目录（worker 写、沙箱读）
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   # 沙箱镜像（仅构建用，见 README/部署文档）
   codex-sandbox:

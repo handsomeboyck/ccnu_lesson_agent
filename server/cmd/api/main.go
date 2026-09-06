@@ -69,13 +69,16 @@ func main() {
 	// LLM Provider：OPENAI_API_KEY 存在 → OpenAI 兼容；否则 Demo。
 	prov := model.New(cfg)
 
-	// Python 沙箱客户端（CODEX_URL 配置后启用 execute_code）
+	// Python 沙箱客户端（CODEX_URL 配置后启用 execute_code；作为"挂件"可动态摘除/恢复）
 	var codexCli *codex.Client
 	if cfg.CodexURL != "" {
 		codexCli = codex.NewClient(cfg.CodexURL)
-		log.Printf("codex sandbox: enabled (%s)", cfg.CodexURL)
+		log.Printf("codex sandbox: enabled (%s), start health monitor", cfg.CodexURL)
+		go monitorCodexHealth(reg, codexCli)
 	} else {
-		log.Printf("codex sandbox: disabled (CODEX_URL not set)")
+		// 无沙箱：execute_code 直接隐藏（其余能力不受影响）
+		reg.SetDisabled("execute_code", true)
+		log.Printf("codex sandbox: disabled (CODEX_URL not set); execute_code hidden")
 	}
 
 	apiHandler := gateway.New(cfg, authSvc, st, prov, reg, loader, codexCli, cfg.OpenAIModel)
@@ -106,6 +109,31 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("shutdown: %v", err)
+	}
+}
+
+// monitorCodexHealth 定期探测 codex-worker：健康则恢复 execute_code，否则摘除（挂件式自愈）。
+func monitorCodexHealth(reg *skill.Registry, cli *codex.Client) {
+	const interval = 15 * time.Second
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	// 初次探测
+	check := func() {
+		if err := cli.Health(); err != nil {
+			if !reg.IsDisabled("execute_code") {
+				reg.SetDisabled("execute_code", true)
+				log.Printf("codex sandbox: DOWN -> execute_code hidden (%v)", err)
+			}
+			return
+		}
+		if reg.IsDisabled("execute_code") {
+			reg.SetDisabled("execute_code", false)
+			log.Printf("codex sandbox: UP -> execute_code restored")
+		}
+	}
+	check()
+	for range t.C {
+		check()
 	}
 }
 

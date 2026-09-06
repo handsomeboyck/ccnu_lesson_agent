@@ -111,7 +111,13 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 
 	resp, err := env.Codex.Exec(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("execute_code: %w", err)
+		// 沙箱不稳定：不打断对话，降级为明确提示（模型可改用其它能力）。
+		return &Result{
+			Content: "代码沙箱（execute_code）暂时不可用（" + err.Error() + "）。请勿再重试 execute_code，" +
+				"改用其它 Skill 或内置解析能力完成请求，或请用户稍后重试。",
+			Summary: "沙箱暂不可用",
+			Done:    true,
+		}, nil
 	}
 	if resp == nil {
 		return &Result{Content: "沙箱无响应。", Summary: "执行无结果", Done: true}, nil

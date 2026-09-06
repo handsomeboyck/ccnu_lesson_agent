@@ -83,7 +83,8 @@ func (r *Runner) Run(ctx context.Context, job *Job) (*ExecResponse, error) {
 		"-v", job.OutDir + ":/out:rw",
 		"-w", "/out",
 		r.SandboxImage,
-		"python", "/in/code.py",
+		// 镜像 ENTRYPOINT 为 ["python","-u"]，此处只传脚本路径
+		"/in/code.py",
 	}
 	cmd := exec.CommandContext(ctx, "docker", args...)
 

@@ -6,6 +6,7 @@ package skill
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
@@ -70,12 +71,13 @@ func AskFor(question string, options ...string) *Result {
 
 // Registry 持有全部注册的 Skill。
 type Registry struct {
-	byName  map[string]Skill
-	aliases map[string]Skill // 命令别名 → skill（含 name 本身）
+	byName   map[string]Skill
+	aliases  map[string]Skill // 命令别名 → skill（含 name 本身）
+	disabled map[string]bool  // 动态禁用的技能（如沙箱不可用时摘除 execute_code）
 }
 
 func NewRegistry() *Registry {
-	return &Registry{byName: map[string]Skill{}, aliases: map[string]Skill{}}
+	return &Registry{byName: map[string]Skill{}, aliases: map[string]Skill{}, disabled: map[string]bool{}}
 }
 
 // Register 注册 Skill（含命令别名）。
@@ -95,6 +97,19 @@ func (r *Registry) Get(name string) (Skill, bool) {
 	return s, ok
 }
 
+// SetDisabled 动态启用/禁用某 Skill（如沙箱不可用时摘除 execute_code）。
+// 仅影响对外暴露（工具/命令/列表），注册信息保留，恢复时无需重建。
+func (r *Registry) SetDisabled(name string, disabled bool) {
+	if disabled {
+		r.disabled[name] = true
+	} else {
+		delete(r.disabled, name)
+	}
+}
+
+// IsDisabled 查询某 Skill 是否被禁用。
+func (r *Registry) IsDisabled(name string) bool { return r.disabled[name] }
+
 // Remove 按名称移除 Skill（含命令别名），供运行时技能管理使用。
 func (r *Registry) Remove(name string) {
 	s, ok := r.byName[name]
@@ -110,16 +125,22 @@ func (r *Registry) Remove(name string) {
 	delete(r.aliases, strings.ToLower(name))
 }
 
-// LookupCommand 按命令别名（不含 "/"）查找 Skill。
+// LookupCommand 按命令别名（不含 "/"）查找 Skill（禁用技能不可命中）。
 func (r *Registry) LookupCommand(cmd string) (Skill, bool) {
 	s, ok := r.aliases[strings.ToLower(strings.TrimSpace(cmd))]
+	if !ok || r.disabled[s.Name()] {
+		return nil, false
+	}
 	return s, ok
 }
 
-// All 返回全部 Skill（保持注册顺序）。
+// All 返回全部未禁用 Skill。
 func (r *Registry) All() []Skill {
 	out := make([]Skill, 0, len(r.byName))
 	for _, s := range r.byName {
+		if r.disabled[s.Name()] {
+			continue
+		}
 		out = append(out, s)
 	}
 	return out
@@ -134,10 +155,13 @@ type CommandInfo struct {
 	Parameters  map[string]any `json:"parameters,omitempty"`
 }
 
-// Commands 返回实现了 CommandProvider 的 Skill 的命令清单。
+// Commands 返回实现了 CommandProvider 的 Skill 的命令清单（禁用技能不列出）。
 func (r *Registry) Commands() []CommandInfo {
 	var out []CommandInfo
 	for _, s := range r.byName {
+		if r.disabled[s.Name()] {
+			continue
+		}
 		cp, ok := s.(CommandProvider)
 		if !ok {
 			continue
@@ -171,11 +195,11 @@ func enabledFor(s Skill, mode string) bool {
 	return false
 }
 
-// ToolsForMode 返回某模式可用 Skill 的 tool 定义（供 function calling）。
+// ToolsForMode 返回某模式可用 Skill 的 tool 定义（供 function calling；禁用技能不暴露）。
 func (r *Registry) ToolsForMode(mode string) []model.Tool {
 	var tools []model.Tool
 	for _, s := range r.byName {
-		if !enabledFor(s, mode) {
+		if r.disabled[s.Name()] || !enabledFor(s, mode) {
 			continue
 		}
 		tools = append(tools, model.Tool{
@@ -190,11 +214,14 @@ func (r *Registry) ToolsForMode(mode string) []model.Tool {
 	return tools
 }
 
-// Execute 执行一次调用；未知 Skill 或参数非法时返回错误。
+// Execute 执行一次调用；未知 Skill、禁用中 或参数非法时返回错误。
 func (r *Registry) Execute(ctx context.Context, env *Env, name string, args json.RawMessage) (*Result, error) {
 	s, ok := r.byName[name]
 	if !ok {
 		return nil, &UnknownSkillError{Name: name}
+	}
+	if r.disabled[name] {
+		return nil, fmt.Errorf("skill: %s 当前不可用（依赖的服务暂不可用）", name)
 	}
 	return s.Execute(ctx, env, args)
 }

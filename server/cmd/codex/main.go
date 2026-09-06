@@ -36,13 +36,48 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// 并发限制（默认 2 个并发沙箱，防雪崩）
+	concurrency := getenvInt("CODEX_CONCURRENCY", 2)
+	sem := make(chan struct{}, concurrency)
+
+	// 启动时清理历史残留作业
+	cleanupJobs(hostJobs)
+
 	mux.HandleFunc("POST /exec", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+		default:
+			writeErr(w, 429, "codex busy: too many concurrent executions")
+			return
+		}
 		handleExec(w, r, runner, hostJobs)
 	})
 
-	log.Printf("codex-worker listening on :%s (image=%s jobs=%s)", port, image, hostJobs)
+	log.Printf("codex-worker listening on :%s (image=%s jobs=%s concurrency=%d)",
+		port, image, hostJobs, concurrency)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// cleanupJobs 清理 jobs 目录下的旧作业目录（残留）。
+func cleanupJobs(hostJobs string) {
+	entries, err := os.ReadDir(hostJobs)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-30 * time.Minute)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		p := hostJobs + "/" + e.Name()
+		info, err := e.Info()
+		if err != nil || info.ModTime().Before(cutoff) {
+			_ = os.RemoveAll(p)
+		}
 	}
 }
 
