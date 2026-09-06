@@ -38,6 +38,10 @@ func (r *Runner) Prepare(jobID, code string, files []InFile) (*Job, error) {
 	if err := os.MkdirAll(hostOut, 0o755); err != nil {
 		return nil, err
 	}
+	// 沙箱内以 --user 1000 运行：OutDir（宿主由 worker root 创建）须对 uid 1000 可写
+	if err := os.Chmod(hostOut, 0o777); err != nil {
+		return nil, err
+	}
 	// code.py
 	if err := os.WriteFile(filepath.Join(hostIn, "code.py"), []byte(code), 0o644); err != nil {
 		return nil, err
