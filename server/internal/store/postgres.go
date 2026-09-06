@@ -57,10 +57,11 @@ func (s *pgStore) CreateUser(ctx context.Context, u *User) error {
 	if u.ID == "" {
 		u.ID = newID()
 	}
-	_, err := s.pool.Exec(ctx,
+	err := s.pool.QueryRow(ctx,
 		`INSERT INTO users (id, username, password_hash, display_name, role, created_at)
-		 VALUES ($1,$2,$3,$4,$5, now())`,
-		u.ID, u.Username, u.PasswordHash, u.DisplayName, u.Role)
+		 VALUES ($1,$2,$3,$4,$5, now()) RETURNING created_at`,
+		u.ID, u.Username, u.PasswordHash, u.DisplayName, u.Role).
+		Scan(&u.CreatedAt)
 	if isUniqueViolation(err) {
 		return ErrUsernameTaken
 	}
