@@ -1,7 +1,16 @@
-// 监控中心（仅 admin）：Agent 指标 + 系统/宿主指标 + 服务健康
+// 监控中心（仅 admin）：Agent 指标 + 系统/宿主指标 + 服务健康 + 对话审计
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchMonitorOverview, logout, type MonitorOverview } from '../api/client'
+import {
+  exportAuditConversation,
+  fetchAuditTranscript,
+  fetchMonitorOverview,
+  listAuditConversations,
+  logout,
+  type AuditConv,
+  type AuditMsg,
+  type MonitorOverview,
+} from '../api/client'
 
 const HOUR_LABELS = ['0点', '2点', '4点', '6点', '8点', '10点', '12点', '14点', '16点', '18点', '20点', '22点']
 
@@ -72,6 +81,44 @@ export default function MonitorPage() {
   const host = data?.system?.host
   const containers = data?.system?.containers ?? []
   const db = data?.db
+
+  // 对话审计
+  const [convs, setConvs] = useState<AuditConv[]>([])
+  const [convErr, setConvErr] = useState('')
+  const [transcript, setTranscript] = useState<{ conv: AuditConv; msgs: AuditMsg[] } | null>(null)
+  const [search, setSearch] = useState('')
+
+  async function loadConvs() {
+    try {
+      const { conversations } = await listAuditConversations()
+      setConvs(conversations)
+      setConvErr('')
+    } catch (e) {
+      setConvErr(e instanceof Error ? e.message : '加载会话失败')
+    }
+  }
+  useEffect(() => {
+    void loadConvs()
+  }, [])
+
+  async function openTranscript(c: AuditConv) {
+    try {
+      const t = await fetchAuditTranscript(c.id)
+      setTranscript({ conv: t.conversation, msgs: t.messages })
+    } catch (e) {
+      setConvErr(e instanceof Error ? e.message : '加载问答失败')
+    }
+  }
+
+  const filteredConvs = convs.filter((c) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return (
+      (c.title || '').toLowerCase().includes(q) ||
+      (c.username || '').toLowerCase().includes(q) ||
+      (c.display_name || '').toLowerCase().includes(q)
+    )
+  })
 
   return (
     <div className="page-shell monitor-page">
@@ -190,6 +237,68 @@ export default function MonitorPage() {
           </div>
         </section>
 
+        {/* 业务审计：全站用户问答 */}
+        <section className="monitor-section">
+          <h2 className="monitor-h2">用户对话审计（query / 回答）</h2>
+          {convErr && <div className="error-banner">⚠ {convErr}</div>}
+          <div className="audit-search">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索用户 / 会话标题…"
+            />
+            <span className="audit-count">共 {filteredConvs.length} 个会话</span>
+            {convs.length > 0 && (
+              <button
+                className="btn-ghost"
+                onClick={() => {
+                  const lines = convs.map((c) => `${c.username}\t${c.title}\t${c.mode}`)
+                  navigator.clipboard.writeText(lines.join('\n'))
+                }}
+              >
+                ⧉ 复制会话清单
+              </button>
+            )}
+          </div>
+          {filteredConvs.length === 0 ? (
+            <div className="monitor-empty">暂无会话</div>
+          ) : (
+            <div className="audit-table">
+              <div className="audit-row audit-head">
+                <span className="audit-user">用户</span>
+                <span className="audit-title-col">会话标题</span>
+                <span className="audit-mode">模式</span>
+                <span className="audit-time">最后更新</span>
+                <span className="audit-op" />
+              </div>
+              {filteredConvs.map((c) => (
+                <div key={c.id} className="audit-row">
+                  <span className="audit-user">
+                    <span className="audit-avatar">{(c.display_name || c.username || '?').slice(0, 1).toUpperCase()}</span>
+                    <span>
+                      <span className="audit-uname">{c.display_name || c.username}</span>
+                      <span className="audit-login">@{c.username}</span>
+                    </span>
+                  </span>
+                  <span className="audit-title-col" title={c.title}>
+                    {c.title || '（无标题）'}
+                  </span>
+                  <span className="audit-mode">{modeLabel(c.mode)}</span>
+                  <span className="audit-time">{new Date(c.updated_at).toLocaleString()}</span>
+                  <span className="audit-op">
+                    <button className="hist-artifact-dl" onClick={() => void openTranscript(c)}>
+                      👁 问答
+                    </button>
+                    <button className="btn-ghost-sm" onClick={() => void exportAuditConversation(c)}>
+                      ⬇ 导出
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         {/* 系统 / 宿主 / 容器 */}
         <section className="monitor-section">
           <h2 className="monitor-h2">系统资源</h2>
@@ -243,6 +352,43 @@ export default function MonitorPage() {
           数据更新于 {data ? new Date(data.generated_at).toLocaleTimeString() : '—'} · {data ? `${data.window_hours}h 窗口` : ''} · {HOUR_LABELS.length ? '自动刷新 15s' : ''}
         </p>
       </div>
+
+      {/* 问答详情弹窗 */}
+      {transcript && (
+        <div className="modal-mask" onClick={() => setTranscript(null)}>
+          <div className="modal audit-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <span className="toolbar-title">
+                问答：{(transcript.conv.display_name || transcript.conv.username)} · {transcript.conv.title || '无标题'}
+              </span>
+              <span className="audit-actions">
+                <button className="btn-ghost-sm" onClick={() => void exportAuditConversation(transcript.conv)}>
+                  ⬇ 导出 txt
+                </button>
+                <button onClick={() => setTranscript(null)}>✕</button>
+              </span>
+            </div>
+            <div className="modal-body transcript-body">
+              {transcript.msgs.length === 0 ? (
+                <div className="monitor-empty">该会话暂无问答记录</div>
+              ) : (
+                transcript.msgs.map((m) => (
+                  <div key={m.id} className={`tr-msg ${m.role}`}>
+                    <div className="tr-who">{m.role === 'user' ? '🧑‍🎓 学生' : '🎓 学伴'}</div>
+                    <div className="tr-content">{m.content}</div>
+                    <div className="tr-time">{new Date(m.created_at).toLocaleString()}</div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="btn-ghost" onClick={() => setTranscript(null)}>
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

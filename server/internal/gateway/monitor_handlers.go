@@ -2,8 +2,11 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
@@ -151,6 +154,97 @@ func (m *monitorService) serviceHealth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// auditConversations 全站会话（admin 审计：显示所有者与时间）。
+func (m *monitorService) auditConversations(w http.ResponseWriter, r *http.Request) {
+	limit := 500
+	if q := r.URL.Query().Get("limit"); q != "" {
+		var n int
+		if _, err := fmt.Sscanf(q, "%d", &n); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	convs, err := m.store.ListAllConversations(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list: "+err.Error())
+		return
+	}
+	out := make([]map[string]any, 0, len(convs))
+	for _, c := range convs {
+		out = append(out, map[string]any{
+			"id":           c.ID,
+			"user_id":      c.UserID,
+			"username":     c.Username,
+			"display_name": c.DisplayName,
+			"title":        c.Title,
+			"mode":         c.Mode,
+			"created_at":   c.CreatedAt,
+			"updated_at":   c.UpdatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"conversations": out, "total": len(out)})
+}
+
+// auditTranscript 某个会话的完整问答（admin：不做归属校验）。
+func (m *monitorService) auditTranscript(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	conv, err := m.store.GetConversationAdmin(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "conversation not found")
+		return
+	}
+	msgs, err := m.store.ListMessages(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "messages: "+err.Error())
+		return
+	}
+	// 仅展示问答（user/assistant 成对），供审计阅读
+	items := make([]msgView, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg.Role != "user" && msg.Role != "assistant" {
+			continue
+		}
+		items = append(items, toMsgView(msg))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"conversation": map[string]any{
+			"id": conv.ID, "username": conv.Username, "display_name": conv.DisplayName,
+			"title": conv.Title, "mode": conv.Mode, "created_at": conv.CreatedAt, "updated_at": conv.UpdatedAt,
+		},
+		"messages": items,
+	})
+}
+
+// auditExport 简易导出：把某会话问答整理为可读文本（TSV/文本行）。
+func (m *monitorService) auditExport(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	conv, err := m.store.GetConversationAdmin(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "conversation not found")
+		return
+	}
+	msgs, err := m.store.ListMessages(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "messages: "+err.Error())
+		return
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("会话：%s（用户 %s）\n模式：%s\n创建：%s\n\n",
+		conv.Title, conv.Username, conv.Mode, conv.CreatedAt.Format("2006-01-02 15:04:05")))
+	for _, msg := range msgs {
+		if msg.Role != "user" && msg.Role != "assistant" {
+			continue
+		}
+		who := "学生"
+		if msg.Role == "assistant" {
+			who = "AI"
+		}
+		sb.WriteString(fmt.Sprintf("【%s %s】\n%s\n\n", who, msg.CreatedAt.Format("15:04"), msg.Content))
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s.txt`, url.PathEscape(conv.Title)))
+	_, _ = w.Write([]byte(sb.String()))
 }
 
 // topSkills 截取技能分布 top N（降序 key）。

@@ -202,6 +202,50 @@ func (s *pgStore) TouchConversation(ctx context.Context, id, userID string, at t
 	return err
 }
 
+func (s *pgStore) ListAllConversations(ctx context.Context, limit int) ([]*ConvAudit, error) {
+	if limit <= 0 || limit > 2000 {
+		limit = 500
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT c.id, c.user_id, c.title, c.mode, c.course_id, c.created_at, c.updated_at,
+		        u.username, coalesce(u.display_name,'')
+		 FROM conversations c LEFT JOIN users u ON u.id = c.user_id
+		 ORDER BY c.updated_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*ConvAudit
+	for rows.Next() {
+		var ca ConvAudit
+		if err := rows.Scan(&ca.ID, &ca.UserID, &ca.Title, &ca.Mode, &ca.CourseID, &ca.CreatedAt,
+			&ca.UpdatedAt, &ca.Username, &ca.DisplayName); err != nil {
+			return nil, err
+		}
+		cc := ca
+		out = append(out, &cc)
+	}
+	return out, rows.Err()
+}
+
+func (s *pgStore) GetConversationAdmin(ctx context.Context, id string) (*ConvAudit, error) {
+	var ca ConvAudit
+	err := s.pool.QueryRow(ctx,
+		`SELECT c.id, c.user_id, c.title, c.mode, c.course_id, c.created_at, c.updated_at,
+		        u.username, coalesce(u.display_name,'')
+		 FROM conversations c LEFT JOIN users u ON u.id = c.user_id
+		 WHERE c.id=$1`, id).
+		Scan(&ca.ID, &ca.UserID, &ca.Title, &ca.Mode, &ca.CourseID, &ca.CreatedAt,
+			&ca.UpdatedAt, &ca.Username, &ca.DisplayName)
+	if isNoRows(err) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &ca, nil
+}
+
 // ---- messages ----
 
 func (s *pgStore) CreateMessage(ctx context.Context, m *Message) error {

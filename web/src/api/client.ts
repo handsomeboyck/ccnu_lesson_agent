@@ -339,6 +339,51 @@ export function fetchMonitorOverview(): Promise<MonitorOverview> {
   return request('/v1/monitor/overview', { auth: true })
 }
 
+// ---- 对话审计（仅 admin） ----
+
+export interface AuditConv {
+  id: string
+  user_id: string
+  username: string
+  display_name: string
+  title: string
+  mode: string
+  created_at: string
+  updated_at: string
+}
+export interface AuditMsg {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  artifacts?: { id: string; name: string; mime: string }[]
+  created_at: string
+}
+
+export function listAuditConversations(): Promise<{ conversations: AuditConv[]; total: number }> {
+  return request('/v1/monitor/conversations', { auth: true })
+}
+export function fetchAuditTranscript(id: string): Promise<{ conversation: AuditConv; messages: AuditMsg[] }> {
+  return request(`/v1/monitor/conversations/${id}`, { auth: true })
+}
+/** 导出会话问答为 txt（鉴权拉 blob 后触发下载）。 */
+export async function exportAuditConversation(conv: AuditConv): Promise<void> {
+  const { accessToken } = useAuth.getState()
+  if (!accessToken) throw new ApiError(401, 'unauthorized')
+  const res = await fetch(`${BASE}/v1/monitor/conversations/${conv.id}/export`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`)
+  const blob = await res.blob()
+  const u = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = u
+  link.download = `${conv.username || 'user'}_${(conv.title || 'chat').slice(0, 30)}.txt`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(u), 5000)
+}
+
 /** 统一下载入口：优先从服务器按 id 取 blob（可靠下载）；无 id 时回退 data URL。 */
 export async function downloadArtifact(a: { id?: string; name: string; mime: string; data?: string }): Promise<void> {
   let blob: Blob | null = null

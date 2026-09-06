@@ -71,6 +71,9 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	// 监控（仅 admin）
 	mux.HandleFunc("GET /v1/monitor/overview", authH.requireRole(monH.overview, store.RoleAdmin))
 	mux.HandleFunc("GET /v1/monitor/health", authH.requireRole(monH.serviceHealth, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/conversations", authH.requireRole(monH.auditConversations, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/conversations/{id}", authH.requireRole(monH.auditTranscript, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/conversations/{id}/export", authH.requireRole(monH.auditExport, store.RoleAdmin))
 
 	handler := http.Handler(mux)
 	handler = corsMiddleware(cfg.CORSOrigins, handler)

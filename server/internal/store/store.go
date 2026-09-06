@@ -47,6 +47,13 @@ type Conversation struct {
 	UpdatedAt time.Time
 }
 
+// ConvAudit 会话 + 所有者信息（admin 审计视图）。
+type ConvAudit struct {
+	Conversation
+	Username    string
+	DisplayName string
+}
+
 type Message struct {
 	ID             string
 	ConversationID string
@@ -175,6 +182,10 @@ type Store interface {
 	UpdateConversation(ctx context.Context, c *Conversation) error
 	DeleteConversation(ctx context.Context, id, userID string) error
 	TouchConversation(ctx context.Context, id, userID string, at time.Time) error
+	// ListAllConversations 全站会话（admin 审计用；Conversation.UserID 为所有者 id，Username/Display 带所有者信息）
+	ListAllConversations(ctx context.Context, limit int) ([]*ConvAudit, error)
+	// GetConversationAdmin 按 id 无归属校验取会话（admin 审计）。
+	GetConversationAdmin(ctx context.Context, id string) (*ConvAudit, error)
 
 	// messages
 	CreateMessage(ctx context.Context, m *Message) error

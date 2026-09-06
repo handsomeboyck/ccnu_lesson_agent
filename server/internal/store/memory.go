@@ -203,6 +203,44 @@ func (s *memoryStore) TouchConversation(ctx context.Context, id, userID string, 
 	return nil
 }
 
+func (s *memoryStore) ListAllConversations(ctx context.Context, limit int) ([]*ConvAudit, error) {
+	if limit <= 0 || limit > 2000 {
+		limit = 500
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*ConvAudit
+	for _, c := range s.conversation {
+		ca := ConvAudit{Conversation: *c}
+		if u := s.users[c.UserID]; u != nil {
+			ca.Username = u.Username
+			ca.DisplayName = u.DisplayName
+		}
+		cc := ca
+		out = append(out, &cc)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *memoryStore) GetConversationAdmin(ctx context.Context, id string) (*ConvAudit, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c := s.conversation[id]
+	if c == nil {
+		return nil, ErrNotFound
+	}
+	ca := ConvAudit{Conversation: *c}
+	if u := s.users[c.UserID]; u != nil {
+		ca.Username = u.Username
+		ca.DisplayName = u.DisplayName
+	}
+	return &ca, nil
+}
+
 // ---- messages ----
 
 func (s *memoryStore) CreateMessage(ctx context.Context, m *Message) error {
