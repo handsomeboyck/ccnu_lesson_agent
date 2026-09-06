@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/model"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
 )
@@ -20,6 +21,10 @@ type Env struct {
 	Store     store.Store
 	Model     model.Provider
 	ModelName string
+	// UploadDir：用户资料库原件暂存目录（execute_code 取文件用）
+	UploadDir string
+	// Codex：Python 沙箱客户端（nil = 未启用）
+	Codex *codex.Client
 }
 
 // Ask 表示 Skill 需要向用户澄清（agent 应暂停并把问题呈现给学生，等待回答）。

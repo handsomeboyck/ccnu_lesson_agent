@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/auth"
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/config"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/model"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/skill"
@@ -16,12 +17,13 @@ import (
 
 // New 构建全部路由。
 func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.Provider,
-	reg *skill.Registry, loader *skill.Loader, modelName string) http.Handler {
+	reg *skill.Registry, loader *skill.Loader, codexCli *codex.Client, modelName string) http.Handler {
 	authH := &authService{svc: authSvc}
 	convH := &convService{store: st}
 	libH := &libraryService{store: st, uploadDir: cfg.UploadDir}
 	skillH := &skillService{loader: loader, registry: reg}
-	chatH := &chatService{store: st, conv: convH, provider: prov, registry: reg, model: modelName}
+	chatH := &chatService{store: st, conv: convH, provider: prov, registry: reg,
+		codex: codexCli, uploadDir: cfg.UploadDir, model: modelName}
 
 	mux := http.NewServeMux()
 

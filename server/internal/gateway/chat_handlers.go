@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/agent"
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/model"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/skill"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
@@ -15,11 +16,13 @@ import (
 
 // chatService 处理 POST /v1/chat（SSE 流式对话）。
 type chatService struct {
-	store    store.Store
-	conv     *convService
-	provider model.Provider
-	registry *skill.Registry
-	model    string
+	store     store.Store
+	conv      *convService
+	provider  model.Provider
+	registry  *skill.Registry
+	codex     *codex.Client
+	uploadDir string
+	model     string
 }
 
 type chatRequest struct {
@@ -98,6 +101,8 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		Store:     c.store,
 		Model:     c.provider,
 		ModelName: c.model,
+		UploadDir: c.uploadDir,
+		Codex:     c.codex,
 	}
 	start := time.Now()
 	evCh, err := agent.Run(r.Context(), c.provider, c.registry, env, conv.Mode, c.model, history)

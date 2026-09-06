@@ -1,0 +1,37 @@
+# ccnu-codex 沙箱构建（两个 target）
+#   sandbox: Python 执行环境（ccnu-codex:latest，供 worker docker run）
+#   worker : codex-worker 服务镜像（内置 docker CLI，挂 docker.sock）
+
+# ============ sandbox ============
+FROM python:3.12-slim AS sandbox
+
+# tesseract OCR（含简体中文）用于扫描件解析
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      tesseract-ocr tesseract-ocr-chi-sim libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 解析与科学计算常用库（国内源加速）
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
+      pdfplumber PyMuPDF python-docx openpyxl \
+      pandas numpy matplotlib Pillow pytesseract
+
+# 非 root 沙箱用户（uid 1000 与 docker --user 一致）
+RUN useradd -m -u 1000 sandbox
+USER sandbox
+WORKDIR /out
+ENTRYPOINT ["python", "-u"]
+
+# ============ worker ============
+FROM golang:1.27-alpine AS build
+ENV GOPROXY=https://goproxy.cn,direct
+WORKDIR /src
+COPY server/go.mod server/go.sum ./
+RUN go mod download
+COPY server/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/codex-worker ./cmd/codex
+
+FROM alpine:3.20
+RUN apk add --no-cache docker-cli ca-certificates
+COPY --from=build /out/codex-worker /usr/local/bin/codex-worker
+EXPOSE 9090
+CMD ["codex-worker"]

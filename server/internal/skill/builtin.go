@@ -6,4 +6,5 @@ package skill
 func RegisterDefaults(reg *Registry) {
 	reg.Register(NewKnowledgeRetrieve()) // 检索平台原语
 	reg.Register(NewAskUser())           // 提问平台原语
+	reg.Register(NewExecuteCode())       // Python 沙箱执行原语
 }

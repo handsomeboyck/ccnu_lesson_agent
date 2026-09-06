@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/auth"
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/config"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/gateway"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/model"
@@ -68,7 +69,16 @@ func main() {
 	// LLM Provider：OPENAI_API_KEY 存在 → OpenAI 兼容；否则 Demo。
 	prov := model.New(cfg)
 
-	apiHandler := gateway.New(cfg, authSvc, st, prov, reg, loader, cfg.OpenAIModel)
+	// Python 沙箱客户端（CODEX_URL 配置后启用 execute_code）
+	var codexCli *codex.Client
+	if cfg.CodexURL != "" {
+		codexCli = codex.NewClient(cfg.CodexURL)
+		log.Printf("codex sandbox: enabled (%s)", cfg.CodexURL)
+	} else {
+		log.Printf("codex sandbox: disabled (CODEX_URL not set)")
+	}
+
+	apiHandler := gateway.New(cfg, authSvc, st, prov, reg, loader, codexCli, cfg.OpenAIModel)
 
 	// 前端静态托管（SPA）：/v1、/healthz 走 API，其余回退 index.html。
 	handler := withStatic(apiHandler, cfg.WebDist)

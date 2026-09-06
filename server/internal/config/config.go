@@ -22,6 +22,7 @@ type Config struct {
 	SkillsDir       string // SKILL.md 技能目录（默认 ./skills）
 	SkillsDefault   string // 默认技能副本目录（SkillsDir 为空时初始化用，容器场景）
 	UploadDir       string // 上传原文件暂存目录（空 = 仅存解析文本）
+	CodexURL        string // Python 沙箱 worker 地址（空 = 沙箱未启用）
 }
 
 // LoadDotEnv 读取 .env 文件（KEY=VALUE，支持 # 注释与可选引号）。
@@ -74,7 +75,8 @@ func Load() *Config {
 		WebDist:         os.Getenv("WEB_DIST"),
 		SkillsDir:       getenv("SKILLS_DIR", "skills"),
 		SkillsDefault:   os.Getenv("SKILLS_DEFAULT"),
-		UploadDir:       getenv("UPLOAD_DIR", ""),
+		UploadDir:       os.Getenv("UPLOAD_DIR"),
+		CodexURL:        os.Getenv("CODEX_URL"),
 	}
 	if v := os.Getenv("CORS_ORIGINS"); v != "" {
 		for _, o := range splitCSV(v) {
