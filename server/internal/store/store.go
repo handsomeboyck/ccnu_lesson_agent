@@ -53,7 +53,8 @@ type Message struct {
 	Role           string // user | assistant | tool（M1 起）
 	Content        string
 	Model          string
-	UsageJSON      string // 预留：token 用量序列化
+	UsageJSON      string // token 用量序列化
+	ArtifactsJSON  string // 该消息关联的产物摘要（[{id,name,mime}]），供历史回看
 	CreatedAt      time.Time
 }
 

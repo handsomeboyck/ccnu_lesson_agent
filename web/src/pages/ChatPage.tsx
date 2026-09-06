@@ -11,9 +11,11 @@ import {
   renameConversation,
   type CommandInfo,
   type ServerMessage,
+  type ServerMessageArtifact,
 } from '../api/client'
 import { streamChat } from '../api/sse'
 import { useAuth } from '../store/auth'
+import HistoryArtifacts from '../components/HistoryArtifacts'
 import { MODE_LABELS, type Conversation, type Mode, type SSEEvent } from '../types'
 
 // 本地展示消息（含流式中占位）
@@ -22,6 +24,7 @@ interface DisplayMsg {
   role: 'user' | 'assistant'
   content: string
   pending?: boolean
+  artifacts?: ServerMessageArtifact[] // 历史消息持久化产物（回看）
 }
 
 // 一次工具调用（卡片展示）
@@ -56,7 +59,12 @@ function uid(): string {
 
 /** 服务端消息 → 展示消息。 */
 function toDisplay(m: ServerMessage): DisplayMsg {
-  return { id: m.id, role: m.role === 'user' ? 'user' : 'assistant', content: m.content }
+  return {
+    id: m.id,
+    role: m.role === 'user' ? 'user' : 'assistant',
+    content: m.content,
+    artifacts: m.artifacts && m.artifacts.length > 0 ? m.artifacts : undefined,
+  }
 }
 
 export default function ChatPage() {
@@ -473,6 +481,9 @@ export default function ChatPage() {
                       )}
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                       {m.pending && <span className="cursor-blink">▍</span>}
+                      {m.artifacts && m.artifacts.length > 0 && !isStreamingBot && (
+                        <HistoryArtifacts artifacts={m.artifacts} />
+                      )}
                     </div>
                   ) : (
                     <div className="user-text">{m.content}</div>

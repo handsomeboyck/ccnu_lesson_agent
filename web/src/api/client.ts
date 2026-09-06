@@ -134,10 +134,16 @@ export function deleteConversation(id: string): Promise<void> {
   return request(`/v1/conversations/${id}`, { method: 'DELETE', auth: true })
 }
 
+export interface ServerMessageArtifact {
+  id: string
+  name: string
+  mime: string
+}
 export interface ServerMessage {
   id: string
   role: 'user' | 'assistant' | 'tool'
   content: string
+  artifacts?: ServerMessageArtifact[]
   created_at: string
 }
 

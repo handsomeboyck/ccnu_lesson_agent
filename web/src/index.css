@@ -1099,6 +1099,35 @@ textarea {
   border-top: 1px solid var(--border);
 }
 
+/* ---- 历史消息产物回看 ---- */
+.hist-artifacts {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.hist-artifact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hist-artifact-thumb {
+  max-width: 220px;
+  max-height: 160px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+  background: #fff;
+}
+.hist-artifact-thumb:hover {
+  border-color: var(--accent);
+}
+.hist-artifact-err {
+  font-size: 12px;
+  color: #fca5a5;
+}
+
 /* 欢迎屏 */
 .welcome {
   max-width: 720px;

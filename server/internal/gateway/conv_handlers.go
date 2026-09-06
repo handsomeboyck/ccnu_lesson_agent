@@ -2,10 +2,12 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/skill"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
 )
 
@@ -25,10 +27,11 @@ type convView struct {
 }
 
 type msgView struct {
-	ID        string    `json:"id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string               `json:"id"`
+	Role      string               `json:"role"`
+	Content   string               `json:"content"`
+	Artifacts []skill.ArtifactView `json:"artifacts,omitempty"` // 该消息关联产物（历史回看）
+	CreatedAt time.Time            `json:"created_at"`
 }
 
 func toConvView(c *store.Conversation) convView {
@@ -36,7 +39,14 @@ func toConvView(c *store.Conversation) convView {
 }
 
 func toMsgView(m *store.Message) msgView {
-	return msgView{ID: m.ID, Role: m.Role, Content: m.Content, CreatedAt: m.CreatedAt}
+	v := msgView{ID: m.ID, Role: m.Role, Content: m.Content, CreatedAt: m.CreatedAt}
+	if m.ArtifactsJSON != "" {
+		var arts []skill.ArtifactView
+		if json.Unmarshal([]byte(m.ArtifactsJSON), &arts) == nil && len(arts) > 0 {
+			v.Artifacts = arts
+		}
+	}
+	return v
 }
 
 func (c *convService) list(w http.ResponseWriter, r *http.Request) {

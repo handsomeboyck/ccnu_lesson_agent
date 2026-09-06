@@ -209,16 +209,16 @@ func (s *pgStore) CreateMessage(ctx context.Context, m *Message) error {
 		m.ID = newID()
 	}
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO messages (id, conversation_id, role, content, model, usage_json, created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6, now()) RETURNING created_at`,
-		m.ID, m.ConversationID, m.Role, m.Content, m.Model, m.UsageJSON).
+		`INSERT INTO messages (id, conversation_id, role, content, model, usage_json, artifacts_json, created_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7, now()) RETURNING created_at`,
+		m.ID, m.ConversationID, m.Role, m.Content, m.Model, m.UsageJSON, m.ArtifactsJSON).
 		Scan(&m.CreatedAt)
 	return err
 }
 
 func (s *pgStore) ListMessages(ctx context.Context, conversationID string) ([]*Message, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, conversation_id, role, content, model, usage_json, created_at
+		`SELECT id, conversation_id, role, content, model, usage_json, artifacts_json, created_at
 		 FROM messages WHERE conversation_id=$1 ORDER BY created_at, id`, conversationID)
 	if err != nil {
 		return nil, err
@@ -227,7 +227,7 @@ func (s *pgStore) ListMessages(ctx context.Context, conversationID string) ([]*M
 	var out []*Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.Model, &m.UsageJSON, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.Model, &m.UsageJSON, &m.ArtifactsJSON, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		mm := m

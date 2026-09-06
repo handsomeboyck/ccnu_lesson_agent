@@ -117,7 +117,8 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 
 	var sb strings.Builder
 	var usage *model.Usage
-	var pendingAsk *skill.Ask // ask_user 触发：等待学生回答
+	var pendingAsk *skill.Ask             // ask_user 触发：等待学生回答
+	var msgArtifacts []skill.ArtifactView // 本轮产生的持久化产物（写入 assistant 消息供历史回看）
 	errorCode, errorMsg := "", ""
 
 	for ev := range evCh {
@@ -142,6 +143,12 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			}
 			if len(ev.Artifacts) > 0 {
 				payload["artifacts"] = ev.Artifacts
+				// 收集持久化产物（有 id）用于写入本条 assistant 消息（历史回看）
+				for _, a := range ev.Artifacts {
+					if a.ID != "" {
+						msgArtifacts = append(msgArtifacts, skill.ArtifactView{ID: a.ID, Name: a.Name, Mime: a.Mime})
+					}
+				}
 			}
 			writeSSE(w, "tool_result", payload)
 			flusher.Flush()
@@ -180,6 +187,10 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		if usage != nil {
 			b, _ := json.Marshal(usage)
 			assistantMsg.UsageJSON = string(b)
+		}
+		if len(msgArtifacts) > 0 {
+			b, _ := json.Marshal(msgArtifacts)
+			assistantMsg.ArtifactsJSON = string(b)
 		}
 		if err := c.store.CreateMessage(r.Context(), assistantMsg); err == nil {
 			assistantID = assistantMsg.ID
