@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/migrations"
@@ -233,4 +234,164 @@ func (s *pgStore) ListMessages(ctx context.Context, conversationID string) ([]*M
 		out = append(out, &mm)
 	}
 	return out, rows.Err()
+}
+
+// ---- documents / chunks ----
+
+func (s *pgStore) CreateDocument(ctx context.Context, d *Document) error {
+	if d.ID == "" {
+		d.ID = newID()
+	}
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO documents (id, user_id, filename, ext, size_bytes, status, created_at)
+		 VALUES ($1,$2,$3,$4,$5,$6, now()) RETURNING created_at`,
+		d.ID, d.UserID, d.Filename, d.Ext, d.SizeBytes, d.Status).Scan(&d.CreatedAt)
+	return err
+}
+
+func scanDoc(row pgx.Row) (*Document, error) {
+	var d Document
+	err := row.Scan(&d.ID, &d.UserID, &d.Filename, &d.Ext, &d.SizeBytes, &d.Status, &d.Error, &d.CreatedAt)
+	if isNoRows(err) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+func (s *pgStore) GetDocument(ctx context.Context, id, userID string) (*Document, error) {
+	return scanDoc(s.pool.QueryRow(ctx,
+		`SELECT id, user_id, filename, ext, size_bytes, status, error, created_at
+		 FROM documents WHERE id=$1 AND user_id=$2`, id, userID))
+}
+
+func (s *pgStore) ListDocuments(ctx context.Context, userID string) ([]*Document, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, filename, ext, size_bytes, status, error, created_at
+		 FROM documents WHERE user_id=$1 ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Document
+	for rows.Next() {
+		var d Document
+		if err := rows.Scan(&d.ID, &d.UserID, &d.Filename, &d.Ext, &d.SizeBytes, &d.Status, &d.Error, &d.CreatedAt); err != nil {
+			return nil, err
+		}
+		dd := d
+		out = append(out, &dd)
+	}
+	return out, rows.Err()
+}
+
+func (s *pgStore) UpdateDocumentStatus(ctx context.Context, id, userID, status, errMsg string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE documents SET status=$1, error=$2 WHERE id=$3 AND user_id=$4`,
+		status, errMsg, id, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *pgStore) DeleteDocument(ctx context.Context, id, userID string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM documents WHERE id=$1 AND user_id=$2`, id, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *pgStore) ReplaceChunks(ctx context.Context, docID string, chunks []Chunk) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `DELETE FROM document_chunks WHERE document_id=$1`, docID); err != nil {
+		return err
+	}
+	for i := range chunks {
+		if chunks[i].ID == "" {
+			chunks[i].ID = newID()
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO document_chunks (id, document_id, seq, content)
+			 VALUES ($1,$2,$3,$4) ON CONFLICT (document_id, seq) DO UPDATE SET content=EXCLUDED.content`,
+			chunks[i].ID, docID, chunks[i].Seq, chunks[i].Content); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// SearchChunks 关键词检索：任一查询词命中即返回，按文档名+序号排序，预留 embedding 升级点。
+func (s *pgStore) SearchChunks(ctx context.Context, userID, query string, topK int) ([]ChunkHit, error) {
+	terms := splitQueryTerms(query)
+	if len(terms) == 0 || topK <= 0 {
+		return nil, nil
+	}
+	conds := make([]string, 0, len(terms))
+	args := []any{userID}
+	for _, t := range terms {
+		args = append(args, "%"+t+"%")
+		conds = append(conds, fmt.Sprintf("content ILIKE $%d", len(args)))
+	}
+	sql := fmt.Sprintf(`SELECT c.id, c.document_id, c.seq, c.content, d.filename
+		FROM document_chunks c JOIN documents d ON d.id = c.document_id
+		WHERE d.user_id = $1 AND (%s)
+		ORDER BY d.filename, c.seq LIMIT %d`, strings.Join(conds, " OR "), topK)
+	rows, err := s.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChunkHit
+	for rows.Next() {
+		var h ChunkHit
+		if err := rows.Scan(&h.ID, &h.DocumentID, &h.Seq, &h.Content, &h.Filename); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// splitQueryTerms 拆出检索词：空白分词 + 中文 2-gram（便于 ILIKE 命中短语）。
+func splitQueryTerms(q string) []string {
+	var terms []string
+	seen := map[string]bool{}
+	add := func(t string) {
+		t = strings.TrimSpace(t)
+		if t == "" || len([]rune(t)) < 2 {
+			return
+		}
+		if !seen[t] {
+			seen[t] = true
+			terms = append(terms, t)
+		}
+	}
+	for _, f := range strings.Fields(q) {
+		add(f)
+	}
+	runes := []rune(q)
+	for i := 0; i+2 <= len(runes); i++ {
+		if isCJK(runes[i]) && isCJK(runes[i+1]) {
+			add(string(runes[i : i+2]))
+		}
+	}
+	return terms
+}
+
+func isCJK(r rune) bool {
+	return (r >= 0x4E00 && r <= 0x9FFF) || (r >= 0x3400 && r <= 0x4DBF)
 }

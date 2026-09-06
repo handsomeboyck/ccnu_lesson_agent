@@ -20,6 +20,7 @@ type Config struct {
 	DatabaseURL     string // 空 = 使用内存 store（本地开发演示）
 	WebDist         string // 前端静态资源目录（空 = 不托管前端）
 	SkillsDir       string // SKILL.md 技能目录（默认 ./skills）
+	UploadDir       string // 上传原文件暂存目录（空 = 仅存解析文本）
 }
 
 // LoadDotEnv 读取 .env 文件（KEY=VALUE，支持 # 注释与可选引号）。
@@ -71,6 +72,7 @@ func Load() *Config {
 		DatabaseURL:     os.Getenv("DATABASE_URL"),
 		WebDist:         os.Getenv("WEB_DIST"),
 		SkillsDir:       getenv("SKILLS_DIR", "skills"),
+		UploadDir:       getenv("UPLOAD_DIR", ""),
 	}
 	if v := os.Getenv("CORS_ORIGINS"); v != "" {
 		for _, o := range splitCSV(v) {

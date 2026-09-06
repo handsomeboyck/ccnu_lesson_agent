@@ -57,6 +57,32 @@ type Message struct {
 	CreatedAt      time.Time
 }
 
+// Document 是用户资料库中的一份上传文件（解析后文本按块存 document_chunks）。
+type Document struct {
+	ID        string
+	UserID    string
+	Filename  string
+	Ext       string
+	SizeBytes int64
+	Status    string // parsing | ready | failed
+	Error     string
+	CreatedAt time.Time
+}
+
+// Chunk 是文档解析后的一个检索块。
+type Chunk struct {
+	ID         string
+	DocumentID string
+	Seq        int
+	Content    string
+}
+
+// ChunkHit 检索命中（含来源文档信息）。
+type ChunkHit struct {
+	Chunk
+	Filename string
+}
+
 // Store 是统一的数据访问接口。
 type Store interface {
 	// users
@@ -80,4 +106,15 @@ type Store interface {
 	// messages
 	CreateMessage(ctx context.Context, m *Message) error
 	ListMessages(ctx context.Context, conversationID string) ([]*Message, error)
+
+	// documents / chunks（文件知识库）
+	CreateDocument(ctx context.Context, d *Document) error
+	GetDocument(ctx context.Context, id, userID string) (*Document, error)
+	ListDocuments(ctx context.Context, userID string) ([]*Document, error)
+	UpdateDocumentStatus(ctx context.Context, id, userID, status, errMsg string) error
+	DeleteDocument(ctx context.Context, id, userID string) error
+	// ReplaceChunks 全量写入/覆盖某文档的检索块（解析完成时调用）。
+	ReplaceChunks(ctx context.Context, docID string, chunks []Chunk) error
+	// SearchChunks 关键词检索用户资料库（ILIKE 简单实现，预留 embedding 升级点）。
+	SearchChunks(ctx context.Context, userID, query string, topK int) ([]ChunkHit, error)
 }

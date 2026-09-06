@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -24,6 +25,8 @@ type memoryStore struct {
 	refresh      map[string]*RefreshToken // hash -> token
 	conversation map[string]*Conversation // id -> conv
 	messages     map[string][]*Message    // conversationID -> messages (有序)
+	documents    map[string]*Document     // id -> doc
+	docChunks    map[string][]*Chunk      // docID -> chunks
 }
 
 // NewMemory 创建内存版 Store（M0 本地演示用，进程退出数据即失）。
@@ -34,6 +37,8 @@ func NewMemory() Store {
 		refresh:      map[string]*RefreshToken{},
 		conversation: map[string]*Conversation{},
 		messages:     map[string][]*Message{},
+		documents:    map[string]*Document{},
+		docChunks:    map[string][]*Chunk{},
 	}
 }
 
@@ -225,4 +230,123 @@ func (s *memoryStore) ListMessages(ctx context.Context, conversationID string) (
 		out = append(out, &clone)
 	}
 	return out, nil
+}
+
+// ---- documents / chunks ----
+
+func (s *memoryStore) CreateDocument(ctx context.Context, d *Document) error {
+	if d.ID == "" {
+		d.ID = newID()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	d.CreatedAt = now
+	clone := *d
+	s.documents[d.ID] = &clone
+	s.docChunks[d.ID] = nil
+	return nil
+}
+
+func (s *memoryStore) GetDocument(ctx context.Context, id, userID string) (*Document, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	d := s.documents[id]
+	if d == nil || d.UserID != userID {
+		return nil, ErrNotFound
+	}
+	clone := *d
+	return &clone, nil
+}
+
+func (s *memoryStore) ListDocuments(ctx context.Context, userID string) ([]*Document, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*Document
+	for _, d := range s.documents {
+		if d.UserID == userID {
+			clone := *d
+			out = append(out, &clone)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (s *memoryStore) UpdateDocumentStatus(ctx context.Context, id, userID, status, errMsg string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d := s.documents[id]
+	if d == nil || d.UserID != userID {
+		return ErrNotFound
+	}
+	d.Status = status
+	d.Error = errMsg
+	return nil
+}
+
+func (s *memoryStore) DeleteDocument(ctx context.Context, id, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d := s.documents[id]
+	if d == nil || d.UserID != userID {
+		return ErrNotFound
+	}
+	delete(s.documents, id)
+	delete(s.docChunks, id)
+	return nil
+}
+
+func (s *memoryStore) ReplaceChunks(ctx context.Context, docID string, chunks []Chunk) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.documents[docID]; !ok {
+		return ErrNotFound
+	}
+	store := make([]*Chunk, 0, len(chunks))
+	for i := range chunks {
+		if chunks[i].ID == "" {
+			chunks[i].ID = newID()
+		}
+		c := chunks[i]
+		store = append(store, &c)
+	}
+	s.docChunks[docID] = store
+	return nil
+}
+
+// SearchChunks 关键词检索：把 query 按空白拆分，任一关键词命中即返回（简单起步）。
+func (s *memoryStore) SearchChunks(ctx context.Context, userID, query string, topK int) ([]ChunkHit, error) {
+	keywords := strings.Fields(query)
+	if len(keywords) == 0 {
+		return nil, nil
+	}
+	if topK <= 0 {
+		topK = 5
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var hits []ChunkHit
+	for _, d := range s.documents {
+		if d.UserID != userID {
+			continue
+		}
+		for _, c := range s.docChunks[d.ID] {
+			if c == nil {
+				continue
+			}
+			lower := strings.ToLower(c.Content)
+			for _, kw := range keywords {
+				if strings.Contains(lower, strings.ToLower(kw)) {
+					hits = append(hits, ChunkHit{Chunk: *c, Filename: d.Filename})
+					break
+				}
+			}
+		}
+	}
+	sort.Slice(hits, func(i, j int) bool { return hits[i].Filename < hits[j].Filename })
+	if len(hits) > topK {
+		hits = hits[:topK]
+	}
+	return hits, nil
 }

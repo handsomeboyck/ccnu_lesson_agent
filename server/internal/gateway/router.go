@@ -19,6 +19,7 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	reg *skill.Registry, modelName string) http.Handler {
 	authH := &authService{svc: authSvc}
 	convH := &convService{store: st}
+	libH := &libraryService{store: st, uploadDir: cfg.UploadDir}
 	chatH := &chatService{store: st, conv: convH, provider: prov, registry: reg, model: modelName}
 
 	mux := http.NewServeMux()
@@ -42,6 +43,11 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	mux.HandleFunc("PATCH /v1/conversations/{id}", authH.requireAuth(convH.rename))
 	mux.HandleFunc("DELETE /v1/conversations/{id}", authH.requireAuth(convH.delete))
 	mux.HandleFunc("GET /v1/conversations/{id}/messages", authH.requireAuth(convH.messages))
+
+	// 用户资料库（需登录）
+	mux.HandleFunc("POST /v1/library/files", authH.requireAuth(libH.upload))
+	mux.HandleFunc("GET /v1/library/files", authH.requireAuth(libH.list))
+	mux.HandleFunc("DELETE /v1/library/files/{id}", authH.requireAuth(libH.remove))
 
 	// 对话（SSE，需登录）
 	mux.HandleFunc("POST /v1/chat", authH.requireAuth(chatH.stream))
