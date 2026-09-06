@@ -315,8 +315,8 @@ sfh_workplace/
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| **M0 骨架打通** | monorepo 初始化；users 建表 + 注册/登录/refresh/me；Go 起 REST+SSE `/v1/chat`（无工具）；前端登录/注册页 + GPT 风格聊天页 + 会话列表/多轮续载 + 流式打字机 | 注册登录 → 新建会话 → 多轮对话流式回复并落库，刷新可恢复 |
-| **M1 Agent + Skill** | tools 协议循环；Skill 框架 + 3 个首批 Skill（knowledge_retrieve/explain_topic/quiz_generator）；Skill 调用卡片 UI | 对话中自然触发 skill 并展示 |
+| **M0 骨架打通** | monorepo 初始化；users 建表 + 注册/登录/refresh/me；Go 起 REST+SSE `/v1/chat`（无工具）；前端登录/注册页 + GPT 风格聊天页 + 会话列表/多轮续载 + 流式打字机 | ✅ 完成：注册登录 → 新建会话 → 多轮对话流式回复并落库，刷新可恢复 |
+| **M1 Agent + Skill** | tools 协议循环；Skill 框架 + 首批 Skill（quiz_generator / explain_topic / knowledge_retrieve 占位）；Skill 调用卡片 UI | ✅ 完成：function calling 工具循环（上限 5 轮）、Skill 面板、Demo 模式可无 key 触发 quiz_generator |
 | **M2 RAG** | 文档上传/解析/向量化/检索 + 引用溯源 UI | 问答命中课程资料并可溯源 |
 | **M3 教育业务** | 课程/班级/角色权限；测评 skill（批改、诊断）；学情统计；教师端 | 学生练习→批改→学情闭环 |
 | **M4 上线** | 阿里云 Compose 部署、限流、审计、监控、README/运维文档 | 生产可运行 |
