@@ -15,6 +15,8 @@ COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api
+# 把 SKILL.md 技能目录复制为镜像默认技能（部署时可挂载 volume 覆盖以实现运行时管理）
+RUN mkdir -p /out/skills && cp -r skills/* /out/skills/ 2>/dev/null || true
 
 # 阶段3：运行镜像（alpine 最小）
 FROM alpine:3.20
@@ -22,7 +24,8 @@ RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=server /out/api /app/api
 COPY --from=web /app/web/dist /app/web/dist
+COPY --from=server /out/skills /app/skills
 USER app
-ENV PORT=8080 WEB_DIST=/app/web/dist
+ENV PORT=8080 WEB_DIST=/app/web/dist SKILLS_DIR=/app/skills
 EXPOSE 8080
 CMD ["/app/api"]

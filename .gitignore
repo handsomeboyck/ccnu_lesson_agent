@@ -27,3 +27,5 @@ Thumbs.db
 # --- logs ---
 *.log
 npm-debug.log*
+
+data_export/

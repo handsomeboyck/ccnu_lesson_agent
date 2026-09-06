@@ -47,9 +47,19 @@ func main() {
 
 	authSvc := auth.NewService(st, cfg)
 
-	// Skill 注册表（内置 Skill 全部注册）
+	// Skill 注册：
+	// 1) 平台原语（ask_user / knowledge_retrieve 等，Go 实现）；
+	// 2) 文档型 Skill（skills/ 目录下每个 SKILL.md）——动态加载，无需改代码。
 	reg := skill.NewRegistry()
 	skill.RegisterDefaults(reg)
+	if docs, err := skill.NewLoader(cfg.SkillsDir).Load(); err != nil {
+		log.Printf("skill loader: %v", err)
+	} else {
+		for _, d := range docs {
+			reg.Register(d)
+			log.Printf("skill: loaded doc skill %q (from %s)", d.Name(), d.Dir)
+		}
+	}
 
 	// LLM Provider：OPENAI_API_KEY 存在 → OpenAI 兼容；否则 Demo。
 	prov := model.New(cfg)
