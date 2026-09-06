@@ -192,6 +192,44 @@ version: 1.0.0
 - `Provider.ChatStream`（工具循环用）与 `Provider.Complete`（Skill 内部非流式二次调用用）。
 - 无 `OPENAI_API_KEY` 时启用 DemoProvider（可模拟 quiz 触发与结构化回填），保证本地无网可联调。
 
+### 4.6 代码沙箱（`execute_code` 平台原语 · 设计定稿，待实现）
+
+**目标**：让 Agent 具备"编写并执行 Python 代码"能力（Code Interpreter / Claude Code 形态）——
+既能解决文件解析生态短板（老 .doc / 扫描 PDF OCR / 复杂表格），也向所有 SKILL.md 技能开放通用计算能力
+（数据统计、可视化、格式转换等）。
+
+**已定决策**：
+- 沙箱底层：**Docker 一次性容器**（每次执行 `docker run --rm`），ECS 已具备 Docker；
+  镜像 `ccnu_codex:latest`（python:3.12-slim + pdfplumber/PyMuPDF/python-docx/openpyxl/pandas/numpy/matplotlib/pytesseract 等）
+- 范围：**全开放** —— 平台原语 `execute_code`，任何 SKILL.md / 模型均可调用
+- 网络：**默认禁网**（`--network=none`）；后续如需联网走单独白名单通道
+- 产物：捕获 stdout/stderr/退出码；生成的 png/csv 等作为可展示/下载产物
+
+**执行流程**（复用现有工具循环，无架构变更）：
+```
+用户 / SKILL.md → 模型调 execute_code{python, files:[docIDs]}
+  agent 平台原语：
+    ① 从资料库取原文件副本（只读挂载 /in）
+    ② docker run 一次性容器（非root / read-only rootfs / tmpfs / --network=none /
+       内存CPU限制 / pids限制 / 超时强杀 / 输出上限）执行
+    ③ 回传 stdout/stderr/退出码/产物清单 → tool_result 给模型
+  SSE: tool_call → tool_result(含输出预览+产物) → delta → done
+代码异常 → 错误回填模型 → 自动改代码重试（工具循环天然支持）
+```
+
+**安全边界（硬性）**：
+- 容器级隔离为第一道（不做黑名单拦截）；`--security-opt no-new-privileges` + 默认 seccomp/apparmor
+- **绝不**挂载 Docker socket / 宿主敏感目录；只读挂载用户文件副本，产物经独立目录回传
+- 并发上限（如 4）+ 单用户配额 + 单次超时（60s）+ stdout 长度截断 + 执行审计（入库）
+- 非通用终端：禁网状态下无 pip install/爬取；不开放系统管理操作
+
+**工程落点（实现时）**：
+- `server/internal/codex`：沙箱执行器（镜像构建/运行/清理/限额/产物收集）
+- `skill/execute_code.go`：平台原语（注册 + /命令 + Execute）
+- 资料库上传需**保留原件**（UPLOAD_DIR 常驻；当前仅可选暂存 → 改为必存，供沙箱读取）
+- 前端：运行输出折叠卡片 + PNG 产物渲染/下载
+- 里程碑归属：M5 代码沙箱；本地开发需 Docker Desktop（无 Docker 环境时 execute_code 返回明确不可用提示）
+
 ---
 
 ## 5. 数据模型（PostgreSQL）
@@ -305,6 +343,7 @@ sfh_workplace/（= ccnu_lesson_agent）
 | **文件知识库** | 用户级资料库上传(pdf/docx/xlsx/txt)解析、关键词检索、对话引用带出处、页面 `/library` | ✅ 完成（关键词版；向量化预留） |
 | **M2 增强** | 向量检索升级（pgvector+embedding 1536）、doc(.doc) 支持、跨用户分享 | ⛔ 未开始 |
 | **M3 教育业务** | 课程/班级/角色权限；answer_grader、lesson_plan 等 Skill；学情统计；教师端 | ⛔ 未开始 |
+| **M5 代码沙箱** | execute_code 平台原语（Docker 一次性容器、禁网、产物回传）；文件解析迁移到沙箱（.doc/OCR/复杂表格）；前端输出与图表展示 | ⛔ 未开始（设计已定稿见 §4.6） |
 | **M4 上线** | Postgres（完成）；Docker + compose + 阿里云 ECS 部署（完成，https://www.ccnu.chat 在线）；限流、审计(skill_runs)、监控 | 🔄 大部分完成 |
 
 分支约定：`master` 稳定分支仅合入已验收版本；日常开发在 `develop`。
