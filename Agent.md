@@ -1,7 +1,7 @@
 # 教育版 Web 智能体（AI Tutor）整体架构
 
-> 版本：v0.3（实现快照：M0/M1 完成，Postgres 落库 + 阿里云部署准备中）
-> 定位：面向教育场景的 ChatGPT 风格 Web 智能体。前端参考 GPT 交互形态，服务端为单一 Agent 内核 + 可插拔 Skill 编排，支持 **自然对话自动触发** 与 **`/命令` 主动唤起** Skill，具备 **ask_user 向学生提问**能力，OpenAI 兼容模型接入。
+> 版本：v0.4（Skill v2 = Claude 风格 SKILL.md 文档驱动 + 用户级文件知识库）
+> 定位：面向教育场景的 ChatGPT 风格 Web 智能体。前端参考 GPT 交互形态，服务端为单一 Agent 内核 + 可插拔 Skill 编排，支持 **自然对话自动触发** 与 **`/命令` 主动唤起** Skill，具备 **ask_user 向学生提问**能力，可上传 pdf/docx/xlsx 作为资料库供对话检索引用，OpenAI 兼容模型接入。
 
 ---
 
@@ -118,94 +118,96 @@ User: /quiz 3道一元二次方程困难题
 - **模式切换**：学伴/练习/教师；新会话选模式，历史会话沿用其模式。
 - **Skill 面板**（新对话时）：顶部胶囊列出 `/命令`，点击自动填入。
 
-**页面**：`/login` `/register`（公共）；`/` 聊天主界面（未登录重定向）。`/library` 课程资料库（M2 起）、设置页为规划。
+**页面**：`/login` `/register`（公共）；`/` 聊天主界面；**`/library` 我的资料库**（上传 pdf/docx/xlsx/txt，列表/删除/解析状态）；**`/skills` 技能管理**（teacher/admin 增删改 SKILL.md，实时生效）。设置页为规划。
 
 ### 4.2 Agent 内核（`server/internal/agent`，单 Agent 双路径）
 
 - **路径 A 工具循环**：OpenAI function calling 驱动；模型只做意图/参数/语言组织，动作经 Skill。
-  - 组装上下文：模式系统提示词（含"信息不足用 ask_user、答完上轮提问续接任务"行为准则）+ 历史 + tools。
+  - 组装上下文：模式系统提示词（行为准则含：信息不足用 ask_user、答完提问续接任务、涉及"我上传/讲义/资料"先 knowledge_retrieve）+ 历史 + tools。
   - 循环：`ChatStream` → 有 `tool_calls` 则逐个执行 Skill → `role:tool` 回填 → 继续；无调用即结束。轮次上限 `MaxToolRounds=5`。
-  - **ask 中断**：某 Skill 返回 `Result.Ask`（如 `ask_user`）→ 发 `ask` 事件并**暂停**，不再臆测继续；问题作为助手消息落库。
-- **路径 B `/命令`**：识别历史最后一条 user 消息以 `/` 开头 → 经 `Registry.LookupCommand`（支持别名与 skill 名）→ `CommandArgs(rawText)` 启发式抽参 → 直接 Execute → 结果全文流式返回（不消耗额外推理轮）。
+  - **ask 中断**：Skill 返回 `Result.Ask`（如 ask_user 或文档技能 `ASK_QUESTION:` 协议）→ 发 `ask` 事件并**暂停**；问题作为助手消息落库，学生回答后续接。
+- **路径 B `/命令`**：经 `Registry.LookupCommand` 命中平台原语或文档技能 → 按各自 Execute 流程直接执行并流式返回。
 - 会话模式（mode）是同一 Agent 的**配置切面**：仅影响系统提示词与可用 Skill 集合。
 
-### 4.3 Skill 体系（`server/internal/skill/`）
+### 4.3 Skill 体系（Skill v2：SKILL.md 文档驱动）
 
-**目录**：
+**两层架构**：
 ```
 skill/
-├── registry.go            # 框架：Skill 接口 / Registry / Ask 载荷 / AskFor 构造器
-├── builtin.go             # ★ 注册入口 RegisterDefaults + 文本数量解析
-├── commands.go            # 各 Skill 的 /命令 别名 + 自然语言参数启发式
-├── quiz_generator.go      # 出题
-├── explain_topic.go       # 结构化讲解
-├── knowledge_retrieve.go  # 课程知识库检索（M2 接通，现为占位）
-└── ask_user.go            # 向学生提问
+├── registry.go             # Skill 接口 / Registry(含 Remove/LookupCommand) / Ask / AskFor
+├── builtin.go              # 注册平台原语（Go 实现）
+├── doc.go                  # ★ SKILL.md 文档型技能：解析/Loader/Execute(按文档调模型)/ASK 协议
+├── commands.go             # 平台原语的 /命令 别名
+├── ask_user.go             # 平台原语：向学生提问（Go，交互暂停）
+└── knowledge_retrieve.go   # 平台原语：用户资料库检索（Go，真实实现）
+
+skills/                     # 文档技能目录（SKILLS_DIR，默认 server/skills，部署可挂 volume）
+├── quiz_generator/SKILL.md     # 出题（文档驱动）
+├── explain_topic/SKILL.md      # 讲解（文档驱动）
+└── <新增技能>/SKILL.md         # 用户/教师自行添加，运行时即生效
 ```
 
-**接口（真实签名）**：
-```go
-type Skill interface {
-    Name() string                // 唯一标识，如 "quiz_generator"
-    Description() string         // 给 LLM 看：何时用、做什么
-    Parameters() map[string]any  // JSON Schema
-    Modes() []string             // 可用模式（空=全部）
-    Execute(ctx, env *Env, args json.RawMessage) (*Result, error)
-}
-type Env struct { UserID, CourseID, Mode string; Store store.Store; Model model.Provider; ModelName string }
-
-type Result struct {
-    Content   string   // 回复内容（markdown）
-    Summary   string   // 工具卡片摘要
-    Artifacts []any    // 结构化产物（题目 JSON 等）
-    Done      bool     // true=无需模型再总结
-    Ask       *Ask     // 非空=需提问并等待
-}
-type Ask struct { Question string; Options []string }
-
-// CommandProvider 可选接口：实现后支持 "/命令" 直接唤起
-type CommandProvider interface {
-    Commands() []string                // 别名，如 ["quiz","出题"]
-    CommandArgs(rawText string) map[string]any
-}
+**SKILL.md 格式（Claude 官方风格）**：
+```markdown
+---
+name: quiz_generator          # 技能名（tool/命令标识）
+description: 按知识点/数量/难度生成练习题…  # 何时用、做什么
+commands: [quiz, 出题]        # /命令别名
+modes: []                     # 可用会话模式（空=全部）
+version: 1.0.0
+---
+# 标题
+## 执行步骤（模型按此逐步完成）
+## 输出格式 / 边界
+# 缺参澄清协议：回复首行输出 ASK_QUESTION：问题（可带 ASK_OPTION：选项行）→ agent 转 ask 暂停等待
 ```
 
-**内置 Skill 现状**：
+- **平台原语**（Go，不可由用户删改）：`ask_user`（交互）、`knowledge_retrieve`（检索）——本质上交互/检索能力不是"技能"。
+- **文档型技能**（用户可增删改）：行为 100% 由 SKILL.md 定义，Execute = 文档作系统指令 + 用户请求 → 调模型完成。新增技能 = 在 skills/ 目录建文件夹写 SKILL.md（页面 `/skills` 或直接文件），**无需改代码/重启**。
+- 运行管理：`GET /v1/skills`（列表含 doc/primitive 标记）、`GET /v1/skills/{name}`（详情含全文）、`PUT/DELETE /v1/skills/{name}`（teacher/admin）。
 
-| Skill | /命令 | 说明 | 模式 | 状态 |
-|---|---|---|---|---|
-| `quiz_generator` | `/quiz` `/出题` | 按主题/数量/难度出题，内部调模型生成结构化题目 JSON 再渲染 | practice/teacher | ✅ |
-| `explain_topic` | `/explain` `/讲解` | 定义→例子→分步→易错→小结 讲解 | companion/practice | ✅ |
-| `knowledge_retrieve` | `/search` `/检索` | 课程知识库检索 | 全部 | ⏳ 占位（M2 接 RAG） |
-| `ask_user` | `/ask` `/提问` | 提问并等待学生回答 | 全部 | ✅ |
-| `answer_grader` / `mistake_diagnosis` / `lesson_plan` / `student_progress` | - | 批改/诊断/教案/学情（Agent.md 规划） | - | ⛔ 未实现（M3） |
+**内置技能现状（v0.4）**：
 
-**如何扩展**：新增 Skill = ①新建 `.go` 文件实现接口 → ②`builtin.go` 的 `RegisterDefaults` 注册（删除注册行即移除）→ ③可选在 `commands.go` 实现 `CommandProvider` 加 `/命令` → ④`go build` 重启。前端自动从 `/v1/skills` 拉取，无需改动。
+| 技能 | 类型 | /命令 | 说明 | 模式 | 状态 |
+|---|---|---|---|---|---|
+| `quiz_generator` | 文档型 | `/quiz` `/出题` | 出题（SKILL.md 驱动，缺主题/数量可用 ASK_QUESTION 澄清） | 全部 | ✅ |
+| `explain_topic` | 文档型 | `/explain` `/讲解` | 结构化讲解（SKILL.md 驱动） | 全部 | ✅ |
+| `knowledge_retrieve` | 平台原语 | `/search` `/检索` | 检索**用户资料库**，命中带 `[出处：文件名]` | 全部 | ✅（关键词检索） |
+| `ask_user` | 平台原语 | `/ask` `/提问` | 提问并等待学生回答（可带快捷选项） | 全部 | ✅ |
+| `answer_grader`/`lesson_plan` 等 | - | - | 可自行以 SKILL.md 添加 | - | ⛔ 未实现（M3） |
 
-### 4.4 模型接入（`server/internal/model`）
+**如何扩展（不再写 Go！）**：`/skills` 页面（teacher/admin）或直接在 `skills/<名称>/SKILL.md` 写文档 → 保存即注册生效（运行时热加载）。前端 `/命令` 菜单与技能面板自动出现，无需改代码。
+
+### 4.4 文件知识库（用户级资料库）
+
+- 上传：`POST /v1/library/files`（multipart，pdf/docx/xlsx/txt/md/csv，≤30MB）→ 异步解析 `parsing→ready|failed`。
+- 解析：`internal/ingest` 纯 Go —— PDF(ledongthuc) / DOCX(标准库 zip+xml，兼容两种分隔符) / XLSX(excelize) / 文本；.doc 老格式提示转 .docx。
+- 存储：`documents` + `document_chunks`（按 800 字/重叠 120 分块）。
+- 检索：`SearchChunks`（Postgres ILIKE；中文 2-gram 分词；内存版同语义）→ knowledge_retrieve 把命中片段带出处注入上下文，模型引用作答。
+- 升级点：检索层已抽象，后续可换 pgvector + embedding（1536 维）。
+
+### 4.5 模型接入（`server/internal/model`）
 
 - OpenAI Chat Completions 流式：文本 delta 实时、tool_calls 分片聚合（wire 格式：`type=function` + arguments 为 JSON 字符串——曾踩坑修复）。
 - `Provider.ChatStream`（工具循环用）与 `Provider.Complete`（Skill 内部非流式二次调用用）。
 - 无 `OPENAI_API_KEY` 时启用 DemoProvider（可模拟 quiz 触发与结构化回填），保证本地无网可联调。
 
-### 4.5 RAG 课程知识库（M2，暂缓）
-
-占位 Skill `knowledge_retrieve` 已就位；M2 接入文档上传→解析→分块→向量化（pgvector）→检索→引用溯源（前端 citation 卡片）。
-
 ---
 
 ## 5. 数据模型（PostgreSQL）
 
-实现以迁移文件为准：`server/migrations/0001_init.sql`，启动时自动执行（幂等 `IF NOT EXISTS`）。
+实现以迁移文件为准：`server/migrations/0001_init.sql`、`0002_library.sql`，启动时自动执行（幂等 `IF NOT EXISTS`）。
 
 ```
 users(id, username unique, password_hash, display_name, role, created_at)
 refresh_tokens(hash pk, user_id FK, expires_at)
 conversations(id, user_id FK, title, mode, course_id, created_at, updated_at)
 messages(id, conversation_id FK, role, content, model, usage_json, created_at)
+documents(id, user_id FK, filename, ext, size_bytes, status, error, created_at)
+document_chunks(id, document_id FK, seq, content, created_at)  -- 关键词检索；预留向量列
 ```
 
-> 存储架构：`store.Store` 接口 + 两个实现：`memory.go`（无 DATABASE_URL 时的开发回退，重启丢数据）与 `postgres.go`（生产）。后续 M2 增加 `document_chunks(embedding vector(1536))`；审计 `skill_runs` 表为规划（M4）。
+> 存储架构：`store.Store` 接口 + 两个实现：`memory.go`（无 DATABASE_URL 的开发回退，重启丢数据）与 `postgres.go`（生产）。审计 `skill_runs` 表为规划（M4）。
 
 ---
 
@@ -220,7 +222,13 @@ messages(id, conversation_id FK, role, content, model, usage_json, created_at)
 | GET/PATCH/DELETE | `/v1/conversations/{id}` | 详情 / 重命名 / 删除 |
 | GET | `/v1/conversations/{id}/messages` | 历史消息 |
 | POST | `/v1/chat` | SSE 流式对话（支持 `/命令`） |
-| GET | `/v1/skills` | `{skills:[], commands:[...]}` 供面板与 `/` 菜单 |
+| GET | `/v1/skills` | `{skills:[doc|primitive], commands:[...]}` 供面板与 `/` 菜单 |
+| GET | `/v1/skills/{name}` | 文档型技能详情（含 SKILL.md 全文） |
+| PUT | `/v1/skills/{name}` | 新增/覆盖文档型技能（teacher/admin，热生效） |
+| DELETE | `/v1/skills/{name}` | 删除文档型技能（teacher/admin） |
+| GET | `/v1/library/files` | 我的资料库文件列表 |
+| POST | `/v1/library/files` | 上传（multipart `file`，≤30MB，异步解析） |
+| DELETE | `/v1/library/files/{id}` | 删除文件及其分块 |
 | GET | `/healthz` | 健康检查 |
 
 ### 6.2 SSE 事件（POST /v1/chat）
@@ -264,19 +272,22 @@ sfh_workplace/（= ccnu_lesson_agent）
 ├── README.md               # 快速开始 / API 摘要
 ├── Dockerfile              # 多阶段构建（部署）
 ├── docker-compose.yml      # app + postgres（部署）
+├── deploy/                 # 阿里云部署脚本 / nginx 模板 / 导出与验证脚本
 ├── web/                    # React 19 + Vite + TS
-│   └── src/{pages,api,store,types.ts,index.css}
+│   └── src/{pages(chat,skills,library,login,register),api,store,types.ts,index.css}
 └── server/                 # Go 1.27
-    ├── cmd/api/main.go     # 入口：配置/存储选择/静态托管
+    ├── cmd/api/main.go     # 入口：配置/存储选择/SKILL 加载/静态托管
     ├── internal/
     │   ├── agent/          # 工具循环 + /命令 + ask 中断
-    │   ├── auth/           # JWT/PBKDF2/注册登录刷新
+    │   ├── auth/           # JWT/PBKDF2/注册登录刷新 + requireRole
     │   ├── config/         # .env 加载 + 配置
-    │   ├── gateway/        # REST + SSE + CORS + 日志
+    │   ├── gateway/        # REST + SSE + CORS + 技能/资料库管理
+    │   ├── ingest/         # 文件解析（pdf/docx/xlsx/txt → 分块）
     │   ├── model/          # OpenAI 兼容 / Demo Provider
-    │   ├── skill/          # Skill 框架 + 4 内置 Skill
-    │   └── store/          # Store 接口 + memory + postgres
-    ├── migrations/         # SQL 迁移（go:embed 自动执行）
+    │   ├── skill/          # Skill v2：平台原语 + SKILL.md 文档技能（doc.go/Loader）
+    │   └── store/          # Store 接口 + memory + postgres（documents/chunks）
+    ├── skills/             # ★ SKILL.md 文档技能目录（运行时热加载）
+    ├── migrations/         # SQL 迁移（go:embed 自动执行：0001 基础 + 0002 资料库）
     ├── .env(.example)      # 本地配置（不提交 .env）
     └── go.mod
 ```
@@ -288,32 +299,34 @@ sfh_workplace/（= ccnu_lesson_agent）
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | **M0 骨架** | monorepo；JWT 认证；会话 CRUD；SSE 流式；登录/注册 + GPT 风格多轮聊天 | ✅ 完成 |
-| **M1 Agent+Skill** | function calling 循环（≤5 轮）；Skill 框架；quiz/explain/knowledge_retrieve；调用卡片 UI | ✅ 完成 |
-| **M1.5 交互增强** | `/命令` 强制唤起（CommandProvider）；`ask_user` 提问等待续接；Skill 面板 / 菜单；真实 DeepSeek 模型链路与 wire 格式修复；StrictMode 重复修复 | ✅ 完成 |
-| **M2 RAG** | 课程知识库文档上传/向量化/检索/引用溯源 | ⏸ 暂缓（占位已留） |
-| **M3 教育业务** | 课程/班级/角色权限；answer_grader、mistake_diagnosis、lesson_plan 等 Skill；学情统计；教师端 | ⛔ 未开始 |
-| **M4 上线** | Postgres 落库（进行中）；Docker 化 + compose；阿里云部署/运维文档；限流、审计(skill_runs)、监控 | 🔄 进行中 |
+| **M1 Agent+Skill** | function calling 循环（≤5 轮）；调用卡片 UI；真实模型链路 | ✅ 完成 |
+| **M1.5 交互增强** | `/命令`；`ask_user`；Skill 面板/`/`菜单；wire 格式与 StrictMode 修复 | ✅ 完成 |
+| **Skill v2** | SKILL.md 文档驱动（Claude 风格）；平台原语与文档技能分层；运行时管理页 `/skills` | ✅ 完成 |
+| **文件知识库** | 用户级资料库上传(pdf/docx/xlsx/txt)解析、关键词检索、对话引用带出处、页面 `/library` | ✅ 完成（关键词版；向量化预留） |
+| **M2 增强** | 向量检索升级（pgvector+embedding 1536）、doc(.doc) 支持、跨用户分享 | ⛔ 未开始 |
+| **M3 教育业务** | 课程/班级/角色权限；answer_grader、lesson_plan 等 Skill；学情统计；教师端 | ⛔ 未开始 |
+| **M4 上线** | Postgres（完成）；Docker + compose + 阿里云 ECS 部署（完成，https://www.ccnu.chat 在线）；限流、审计(skill_runs)、监控 | 🔄 大部分完成 |
 
-分支约定：`master` 稳定分支仅合入已验收版本；日常开发在 `develop`（当前 = 804b7c4 + 部署冲刺提交）。
+分支约定：`master` 稳定分支仅合入已验收版本；日常开发在 `develop`。
 
 ---
 
 ## 10. 已定决策 / 待定风险
 
 **已定**：
-- ✅ 模型：OpenAI 架构 Chat Completions；生产供应商可配（现 DeepSeek）；Embedding 1536 维（M2 用）。
-- ✅ 账号：自研 JWT（PBKDF2-SHA256 存密码，refresh 轮换），不接 SSO。
-- ✅ Skill：单 Agent + 注册表；双触发路径（模型自觉 / `/命令`）。
-- ✅ 存储：Postgres 为生产权威源；接口抽象支持内存回退。
-- ✅ 部署：Docker Compose + Go 单进程托管前端；阿里云 ECS。
+- ✅ 模型：OpenAI 架构 Chat Completions；生产 DeepSeek（www.ccnu.chat）。
+- ✅ 账号：自研 JWT（PBKDF2-SHA256，refresh 轮换），不接 SSO。
+- ✅ Skill：双层（平台原语 Go + 文档型 SKILL.md）；模型自觉 / `/命令` / 缺参 ASK 澄清。
+- ✅ 资料库：用户级文件知识库（上传解析 → 分块 → 关键词检索 → 引用注入）。
+- ✅ 存储/部署：Postgres 权威源；Docker Compose + Go 单进程托管前端；阿里云 ECS + Nginx TLS。
 
 **待定 / 风险**：
-1. 对话模型型号与配额/限流策略（上线前定）。
+1. 对话模型型号与配额/限流策略。
 2. 内容安全：敏感词/低龄保护/输出审查（教育合规）。
 3. 主观题批改仅辅助，UI 需明示"仅供参考"。
-4. 课程资料版权边界。
-5. Postgres 连接池与迁移在真实实例上的验收（部署冲刺内完成）。
-6. 上线 TLS（Nginx/SLB 证书）与日志监控接入。
+4. 课程资料版权边界；上传文件的存储与合规（现仅存解析文本，原文件可暂存 UPLOAD_DIR）。
+5. 关键词检索精度 → 向量化升级（文档已留接口）；扫描版 PDF 需 OCR（暂不支持）。
+6. TLS 已就绪（acme 自动续期）；日志监控/审计表待完善。
 
 ---
 

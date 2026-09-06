@@ -24,8 +24,8 @@ RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=server /out/api /app/api
 COPY --from=web /app/web/dist /app/web/dist
-COPY --from=server /out/skills /app/skills
+COPY --from=server /out/skills /app/skills-default   # 默认技能副本（skills 卷为空时初始化用）
 USER app
-ENV PORT=8080 WEB_DIST=/app/web/dist SKILLS_DIR=/app/skills
+ENV PORT=8080 WEB_DIST=/app/web/dist SKILLS_DIR=/app/skills SKILLS_DEFAULT=/app/skills-default UPLOAD_DIR=/app/uploads
 EXPOSE 8080
 CMD ["/app/api"]

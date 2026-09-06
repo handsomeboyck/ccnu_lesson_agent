@@ -49,12 +49,13 @@ export DATABASE_URL="postgres://agent:pass@127.0.0.1:5432/lesson_agent?sslmode=d
 go run ./cmd/api          # 启动时自动建表
 ```
 
-## 玩什么（M1 现状）
+## 玩什么（当前现状）
 
-- **自然对话**：问「帮我出点题」→ 模型信息不足会 ask_user 提问，回答后续接出题。
-- **`/` 命令**：输入框键入 `/` 选命令，或直接发：
-  `/quiz 5道一元二次方程` · `/explain 什么是导数` · `/ask 你想练哪种题？` · `/search …`（RAG 待 M2）
-- **模式**：学伴（答疑引导）/ 练习测评 / 教师辅助（同 Agent 不同提示词与 Skill 集）
+- **自然对话**：问「帮我出点题」→ 信息不足会 ask_user 提问；「根据我上传的讲义…」→ 自动检索资料库带出处作答。
+- **`/` 命令**：`/quiz 5道一元二次方程` · `/explain 什么是导数` · `/ask 你想练哪种题？` · `/search 检索资料库`（自加技能即出现新命令）。
+- **Skill = SKILL.md**（Claude 风格）：对话技能由文档驱动——在 **🧩 技能管理**页（或 `server/skills/<name>/SKILL.md`）写 markdown 即生效，无需改代码重启。
+- **📚 我的资料库**：上传 pdf/docx/xlsx/txt → 自动解析建索引 → 对话引用（带 `[出处：文件名]`）。
+- **模式**：学伴 / 练习测评 / 教师辅助。
 
 ## API 摘要
 
@@ -71,11 +72,13 @@ SSE 事件：`meta` `delta` `tool_call` `tool_result` `ask` `done` `error`
 ## 里程碑
 
 - [x] M0 骨架：JWT 认证、会话管理、SSE 流式、GPT 风格登录/聊天 UI
-- [x] M1 Agent+Skill：function calling 工具循环、Skill 框架与调用卡片
-- [x] M1.5 交互增强：`/命令` 主动唤起、ask_user 提问等待续接、真实模型链路
-- [ ] M2 RAG 课程知识库（暂缓，占位已留）
+- [x] M1 Agent+Skill：function calling 工具循环、调用卡片、真实模型链路
+- [x] M1.5 交互增强：`/命令`、ask_user 提问等待续接
+- [x] Skill v2：SKILL.md 文档驱动（Claude 风格）+ 技能管理页（运行时热加载）
+- [x] 文件知识库：资料库上传(pdf/docx/xlsx/txt)解析 + 关键词检索 + 出处引用
+- [ ] M2 增强：向量检索、doc(.doc) 支持
 - [ ] M3 教育业务：课程/班级权限、批改诊断 Skill、学情统计
-- [ ] M4 上线：Docker 化 + Postgres（进行中）→ 阿里云部署
+- [x] M4 上线：Docker 化 + Postgres + 阿里云 ECS（https://www.ccnu.chat）
 
 ## 生产部署
 

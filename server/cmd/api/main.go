@@ -45,6 +45,9 @@ func main() {
 	// 关闭时释放（内存/连接池统一接口）
 	defer closeStore(st)
 
+	// 目录准备：UPLOAD_DIR 确保存在；SKILLS_DIR 为空且存在默认副本时初始化默认技能。
+	prepareDirs(cfg)
+
 	authSvc := auth.NewService(st, cfg)
 
 	// Skill 注册：
@@ -102,6 +105,76 @@ func closeStore(st store.Store) {
 	if c, ok := st.(closer); ok {
 		c.Close()
 	}
+}
+
+// prepareDirs 准备运行目录：
+//  1. UPLOAD_DIR（若配置）确保存在；
+//  2. SKILLS_DIR 为空目录 且 SKILLS_DEFAULT 存在 → 把默认 SKILL.md 复制进 SKILLS_DIR
+//     （容器内 skills 挂载持久卷首次为空时仍开箱自带默认技能）。
+func prepareDirs(cfg *config.Config) {
+	if cfg.UploadDir != "" {
+		if err := os.MkdirAll(cfg.UploadDir, 0o755); err != nil {
+			log.Printf("upload dir: %v", err)
+		}
+	}
+	if cfg.SkillsDefault == "" {
+		return
+	}
+	// SkillsDir 已含任何 SKILL.md 则跳过
+	if hasSkillDoc(cfg.SkillsDir) {
+		return
+	}
+	if _, err := os.Stat(cfg.SkillsDefault); err != nil {
+		return // 默认目录不存在（本地开发），无需处理
+	}
+	// 复制默认技能目录内容
+	entries, err := os.ReadDir(cfg.SkillsDefault)
+	if err != nil {
+		log.Printf("skills default read: %v", err)
+		return
+	}
+	copied := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		src := filepath.Join(cfg.SkillsDefault, e.Name())
+		if _, err := os.Stat(filepath.Join(src, "SKILL.md")); err != nil {
+			continue
+		}
+		dst := filepath.Join(cfg.SkillsDir, e.Name())
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			continue
+		}
+		if err := copyFile(filepath.Join(src, "SKILL.md"), filepath.Join(dst, "SKILL.md")); err == nil {
+			copied++
+		}
+	}
+	log.Printf("skills: initialized %d default skill(s) into %s", copied, cfg.SkillsDir)
+}
+
+// hasSkillDoc 判断目录下是否存在任意 SKILL.md。
+func hasSkillDoc(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			if _, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md")); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0o644)
 }
 
 // withStatic 把 /v1 与 /healthz 交给 api，其余路径从 webDist 提供 SPA 静态资源。

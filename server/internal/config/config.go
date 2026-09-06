@@ -20,6 +20,7 @@ type Config struct {
 	DatabaseURL     string // 空 = 使用内存 store（本地开发演示）
 	WebDist         string // 前端静态资源目录（空 = 不托管前端）
 	SkillsDir       string // SKILL.md 技能目录（默认 ./skills）
+	SkillsDefault   string // 默认技能副本目录（SkillsDir 为空时初始化用，容器场景）
 	UploadDir       string // 上传原文件暂存目录（空 = 仅存解析文本）
 }
 
@@ -72,6 +73,7 @@ func Load() *Config {
 		DatabaseURL:     os.Getenv("DATABASE_URL"),
 		WebDist:         os.Getenv("WEB_DIST"),
 		SkillsDir:       getenv("SKILLS_DIR", "skills"),
+		SkillsDefault:   os.Getenv("SKILLS_DEFAULT"),
 		UploadDir:       getenv("UPLOAD_DIR", ""),
 	}
 	if v := os.Getenv("CORS_ORIGINS"); v != "" {

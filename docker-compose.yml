@@ -12,12 +12,17 @@ services:
     environment:
       PORT: "8080"
       WEB_DIST: /app/web/dist
+      SKILLS_DIR: /app/skills
+      UPLOAD_DIR: /app/uploads
       DATABASE_URL: postgres://agent:${POSTGRES_PASSWORD:-change-me}@db:5432/lesson_agent?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-please-change-me-to-a-long-random-secret}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com/v1}
       OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-chat}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
+    volumes:
+      - skills-data:/app/skills   # SKILL.md 技能目录（管理页增删持久化；首次为空需初始化，见部署文档）
+      - uploads-data:/app/uploads # 上传原文件暂存
     depends_on:
       db:
         condition: service_healthy
