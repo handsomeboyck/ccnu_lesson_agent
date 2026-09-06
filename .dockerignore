@@ -1,0 +1,11 @@
+# Docker 构建忽略（减小上下文）
+.git
+**/node_modules
+**/dist
+server/bin
+*.log
+server/.env
+.env
+deploy
+README.md
+Agent.md

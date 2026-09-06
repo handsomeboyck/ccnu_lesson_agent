@@ -1,0 +1,41 @@
+# ccnu_lesson_agent 生产编排（阿里云 ECS / Docker Compose）
+# 用法: docker compose up -d --build
+# 首次请把下方占位环境变量替换为你自己的值（或使用 .env 文件）。
+
+services:
+  app:
+    build: .
+    image: ccnu_lesson_agent:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      WEB_DIST: /app/web/dist
+      DATABASE_URL: postgres://agent:${POSTGRES_PASSWORD:-change-me}@db:5432/lesson_agent?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-please-change-me-to-a-long-random-secret}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-chat}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: lesson_agent
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d lesson_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  pgdata:
