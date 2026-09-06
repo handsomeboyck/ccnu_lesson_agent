@@ -44,3 +44,5 @@ services:
 
 volumes:
   pgdata:
+  skills-data:
+  uploads-data:
