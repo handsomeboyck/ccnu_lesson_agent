@@ -22,6 +22,7 @@ type Config struct {
 	SkillsDir       string // SKILL.md 技能目录（默认 ./skills）
 	SkillsDefault   string // 默认技能副本目录（SkillsDir 为空时初始化用，容器场景）
 	UploadDir       string // 上传原文件暂存目录（空 = 仅存解析文本）
+	ArtifactDir     string // 沙箱产物持久化目录（空 = 产物不落盘）
 	CodexURL        string // Python 沙箱 worker 地址（空 = 沙箱未启用）
 }
 
@@ -76,6 +77,7 @@ func Load() *Config {
 		SkillsDir:       getenv("SKILLS_DIR", "skills"),
 		SkillsDefault:   os.Getenv("SKILLS_DEFAULT"),
 		UploadDir:       os.Getenv("UPLOAD_DIR"),
+		ArtifactDir:     os.Getenv("ARTIFACT_DIR"),
 		CodexURL:        os.Getenv("CODEX_URL"),
 	}
 	if v := os.Getenv("CORS_ORIGINS"); v != "" {

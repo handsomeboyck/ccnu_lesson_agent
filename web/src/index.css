@@ -967,6 +967,138 @@ textarea {
   color: #fca5a5;
 }
 
+/* ---- 产物库 ---- */
+.artifact-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 14px;
+  padding: 18px 28px;
+  align-content: start;
+}
+.artifact-tile {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s;
+}
+.artifact-tile:hover {
+  border-color: var(--accent);
+}
+.artifact-tile-preview {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 12px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.artifact-tile-icon {
+  font-size: 40px;
+}
+.artifact-tile-name {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.artifact-tile-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.artifact-tile-actions {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  justify-content: space-around;
+}
+.artifact-tile-actions button {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.artifact-tile-actions button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.artifact-tile-actions button.danger:hover {
+  color: #fca5a5;
+}
+
+/* 预览弹窗 */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  width: min(860px, 94vw);
+  max-height: 88vh;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-head button {
+  color: var(--text-dim);
+  font-size: 15px;
+  padding: 4px 8px;
+}
+.modal-head button:hover {
+  color: var(--text);
+}
+.modal-body {
+  padding: 16px;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  background: #111;
+}
+.modal-img {
+  max-width: 100%;
+  max-height: 62vh;
+  border-radius: 6px;
+}
+.modal-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  max-width: 100%;
+}
+.modal-foot {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
 /* 欢迎屏 */
 .welcome {
   max-width: 720px;

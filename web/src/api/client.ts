@@ -231,3 +231,33 @@ export async function uploadLibraryFile(file: File): Promise<LibraryFile> {
 export function deleteLibraryFile(id: string): Promise<void> {
   return request(`/v1/library/files/${id}`, { method: 'DELETE', auth: true })
 }
+
+// ---- 产物库（沙箱/技能产物） ----
+
+export interface ArtifactInfo {
+  id: string
+  filename: string
+  mime: string
+  size_bytes: number
+  skill: string
+  created_at: string
+}
+
+export function listArtifacts(): Promise<{ artifacts: ArtifactInfo[] }> {
+  return request('/v1/artifacts', { auth: true })
+}
+
+/** 下载产物文件（鉴权后返回 blob；图片可直接 objectURL 预览）。 */
+export async function fetchArtifact(id: string, download = false): Promise<Blob> {
+  const { accessToken } = useAuth.getState()
+  if (!accessToken) throw new ApiError(401, 'unauthorized')
+  const res = await fetch(`${BASE}/v1/artifacts/${id}/raw${download ? '?download=1' : ''}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`)
+  return res.blob()
+}
+
+export function deleteArtifact(id: string): Promise<void> {
+  return request(`/v1/artifacts/${id}`, { method: 'DELETE', auth: true })
+}

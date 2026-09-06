@@ -16,6 +16,7 @@ services:
       WEB_DIST: /app/web/dist
       SKILLS_DIR: /app/skills
       UPLOAD_DIR: /app/uploads
+      ARTIFACT_DIR: /app/artifacts
       DATABASE_URL: postgres://agent:${POSTGRES_PASSWORD:-change-me}@db:5432/lesson_agent?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-please-change-me-to-a-long-random-secret}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -26,6 +27,7 @@ services:
     volumes:
       - skills-data:/app/skills
       - uploads-data:/app/uploads
+      - artifacts-data:/app/artifacts
     depends_on:
       db:
         condition: service_healthy
@@ -82,3 +84,4 @@ volumes:
   pgdata:
   skills-data:
   uploads-data:
+  artifacts-data:

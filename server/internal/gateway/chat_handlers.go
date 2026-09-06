@@ -16,13 +16,14 @@ import (
 
 // chatService 处理 POST /v1/chat（SSE 流式对话）。
 type chatService struct {
-	store     store.Store
-	conv      *convService
-	provider  model.Provider
-	registry  *skill.Registry
-	codex     *codex.Client
-	uploadDir string
-	model     string
+	store       store.Store
+	conv        *convService
+	provider    model.Provider
+	registry    *skill.Registry
+	codex       *codex.Client
+	uploadDir   string
+	artifactDir string
+	model       string
 }
 
 type chatRequest struct {
@@ -95,14 +96,16 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 
 	// 5. 驱动 Agent（LLM ↔ Skill 工具循环）
 	env := &skill.Env{
-		UserID:    claims.UserID,
-		CourseID:  conv.CourseID,
-		Mode:      conv.Mode,
-		Store:     c.store,
-		Model:     c.provider,
-		ModelName: c.model,
-		UploadDir: c.uploadDir,
-		Codex:     c.codex,
+		UserID:         claims.UserID,
+		ConversationID: conv.ID,
+		CourseID:       conv.CourseID,
+		Mode:           conv.Mode,
+		Store:          c.store,
+		Model:          c.provider,
+		ModelName:      c.model,
+		UploadDir:      c.uploadDir,
+		ArtifactDir:    c.artifactDir,
+		Codex:          c.codex,
 	}
 	start := time.Now()
 	evCh, err := agent.Run(r.Context(), c.provider, c.registry, env, conv.Mode, c.model, history)

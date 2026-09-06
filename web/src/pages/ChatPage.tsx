@@ -309,6 +309,9 @@ export default function ChatPage() {
           <Link to="/library" className="side-nav-item">
             📚 我的资料库
           </Link>
+          <Link to="/artifacts" className="side-nav-item">
+            🗂️ 产物库
+          </Link>
           <Link to="/skills" className="side-nav-item">
             🧩 技能管理
           </Link>

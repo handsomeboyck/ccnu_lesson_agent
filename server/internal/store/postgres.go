@@ -395,3 +395,83 @@ func splitQueryTerms(q string) []string {
 func isCJK(r rune) bool {
 	return (r >= 0x4E00 && r <= 0x9FFF) || (r >= 0x3400 && r <= 0x4DBF)
 }
+
+// ---- artifacts ----
+
+func (s *pgStore) CreateArtifact(ctx context.Context, a *Artifact) error {
+	if a.ID == "" {
+		a.ID = newID()
+	}
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO artifacts (id, user_id, conversation_id, message_id, skill, filename, mime, size_bytes, storage_key, created_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now()) RETURNING created_at`,
+		a.ID, a.UserID, a.ConversationID, a.MessageID, a.Skill, a.Filename, a.Mime, a.SizeBytes, a.StorageKey).
+		Scan(&a.CreatedAt)
+	return err
+}
+
+func scanArtifact(row pgx.Row) (*Artifact, error) {
+	var a Artifact
+	err := row.Scan(&a.ID, &a.UserID, &a.ConversationID, &a.MessageID, &a.Skill,
+		&a.Filename, &a.Mime, &a.SizeBytes, &a.StorageKey, &a.CreatedAt)
+	if isNoRows(err) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (s *pgStore) GetArtifact(ctx context.Context, id, userID string) (*Artifact, error) {
+	return scanArtifact(s.pool.QueryRow(ctx,
+		`SELECT id, user_id, conversation_id, message_id, skill, filename, mime, size_bytes, storage_key, created_at
+		 FROM artifacts WHERE id=$1 AND user_id=$2`, id, userID))
+}
+
+func (s *pgStore) ListArtifacts(ctx context.Context, userID string, limit int) ([]*Artifact, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, conversation_id, message_id, skill, filename, mime, size_bytes, storage_key, created_at
+		 FROM artifacts WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Artifact
+	for rows.Next() {
+		var a Artifact
+		if err := rows.Scan(&a.ID, &a.UserID, &a.ConversationID, &a.MessageID, &a.Skill,
+			&a.Filename, &a.Mime, &a.SizeBytes, &a.StorageKey, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		aa := a
+		out = append(out, &aa)
+	}
+	return out, rows.Err()
+}
+
+func (s *pgStore) DeleteArtifact(ctx context.Context, id, userID string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM artifacts WHERE id=$1 AND user_id=$2`, id, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *pgStore) UpdateArtifactStorageKey(ctx context.Context, id, userID, storageKey string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE artifacts SET storage_key=$1 WHERE id=$2 AND user_id=$3`, storageKey, id, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

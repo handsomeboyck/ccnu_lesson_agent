@@ -155,6 +155,11 @@ func prepareDirs(cfg *config.Config) {
 			log.Printf("upload dir: %v", err)
 		}
 	}
+	if cfg.ArtifactDir != "" {
+		if err := os.MkdirAll(cfg.ArtifactDir, 0o755); err != nil {
+			log.Printf("artifact dir: %v", err)
+		}
+	}
 	if cfg.SkillsDefault == "" {
 		return
 	}

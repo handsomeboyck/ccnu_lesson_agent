@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
 )
 
 // NewExecuteCode 创建 Python 代码沙箱平台原语。
@@ -144,13 +145,18 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 		sb.WriteString("（无输出，代码正常结束）\n")
 	}
 
-	// 产物：图片转为 data URL 供前端渲染；csv/文本原样；超大只列名
+	// 产物：落盘到 ArtifactDir + 写 artifacts 表（可持久化浏览）；再转 data URL 供对话内预览
 	var views []ArtifactView
 	if len(resp.Artifacts) > 0 {
 		names := make([]string, 0, len(resp.Artifacts))
 		for _, a := range resp.Artifacts {
 			names = append(names, a.Name)
 			v := ArtifactView{Name: a.Name, Mime: a.Mime}
+			// 1) 持久化（配置了 ArtifactDir 且有数据时）
+			if id := persistArtifact(ctx, env, a); id != "" {
+				v.ID = id
+			}
+			// 2) 对话内即时预览 data
 			switch {
 			case strings.HasPrefix(a.Mime, "image/"):
 				if len(a.Data) > 0 && len(a.Data) <= 4<<20 { // base64 ≤ 4MB 可展示
@@ -169,6 +175,36 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 		Artifacts: views,
 		Done:      false, // 交给模型基于 stdout 组织答复
 	}, nil
+}
+
+// persistArtifact 把沙箱产物写入 ArtifactDir + artifacts 表，返回新 id（失败返回空）。
+func persistArtifact(ctx context.Context, env *Env, a codex.Artifact) string {
+	if env == nil || env.ArtifactDir == "" || env.Store == nil {
+		return ""
+	}
+	raw, err := base64.StdEncoding.DecodeString(a.Data)
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	name := sanitizeName(a.Name)
+	rec := &store.Artifact{
+		UserID:         env.UserID,
+		ConversationID: env.ConversationID,
+		Skill:          "execute_code",
+		Filename:       name,
+		Mime:           a.Mime,
+		SizeBytes:      int64(len(raw)),
+	}
+	if err := env.Store.CreateArtifact(ctx, rec); err != nil {
+		return ""
+	}
+	rec.StorageKey = rec.ID + "_" + name
+	// 更新 storageKey（Create 时不带，这里回填一次）
+	_ = env.Store.UpdateArtifactStorageKey(ctx, rec.ID, env.UserID, rec.StorageKey)
+	if err := os.MkdirAll(env.ArtifactDir, 0o755); err == nil {
+		_ = os.WriteFile(filepath.Join(env.ArtifactDir, rec.StorageKey), raw, 0o644)
+	}
+	return rec.ID
 }
 
 func sanitizeName(s string) string {

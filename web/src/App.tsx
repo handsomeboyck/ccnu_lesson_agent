@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import SkillsPage from './pages/SkillsPage'
 import LibraryPage from './pages/LibraryPage'
+import ArtifactsPage from './pages/ArtifactsPage'
 
 /** 已登录但用户信息缺失时先拉取 /me 恢复会话。 */
 function AuthBootstrap({ children }: { children: ReactNode }) {
@@ -91,6 +92,14 @@ export default function App() {
           element={
             <RequireAuth>
               <LibraryPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/artifacts"
+          element={
+            <RequireAuth>
+              <ArtifactsPage />
             </RequireAuth>
           }
         />

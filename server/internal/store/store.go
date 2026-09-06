@@ -83,6 +83,20 @@ type ChunkHit struct {
 	Filename string
 }
 
+// Artifact 是技能（如 execute_code 沙箱）产生的持久化产物（图片/csv/文本）。
+type Artifact struct {
+	ID             string
+	UserID         string
+	ConversationID string
+	MessageID      string
+	Skill          string
+	Filename       string
+	Mime           string
+	SizeBytes      int64
+	StorageKey     string // ARTIFACT_DIR 下的相对文件名
+	CreatedAt      time.Time
+}
+
 // Store 是统一的数据访问接口。
 type Store interface {
 	// users
@@ -117,4 +131,11 @@ type Store interface {
 	ReplaceChunks(ctx context.Context, docID string, chunks []Chunk) error
 	// SearchChunks 关键词检索用户资料库（ILIKE 简单实现，预留 embedding 升级点）。
 	SearchChunks(ctx context.Context, userID, query string, topK int) ([]ChunkHit, error)
+
+	// artifacts（产物库）
+	CreateArtifact(ctx context.Context, a *Artifact) error
+	GetArtifact(ctx context.Context, id, userID string) (*Artifact, error)
+	ListArtifacts(ctx context.Context, userID string, limit int) ([]*Artifact, error)
+	UpdateArtifactStorageKey(ctx context.Context, id, userID, storageKey string) error
+	DeleteArtifact(ctx context.Context, id, userID string) error
 }

@@ -16,14 +16,17 @@ import (
 
 // Env 是 Skill 执行时可用的环境（由 Agent 注入）。
 type Env struct {
-	UserID    string
-	CourseID  string
-	Mode      string
-	Store     store.Store
-	Model     model.Provider
-	ModelName string
+	UserID         string
+	ConversationID string
+	CourseID       string
+	Mode           string
+	Store          store.Store
+	Model          model.Provider
+	ModelName      string
 	// UploadDir：用户资料库原件暂存目录（execute_code 取文件用）
 	UploadDir string
+	// ArtifactDir：产物持久化目录（execute_code 落盘用；空 = 不落盘仅对话展示）
+	ArtifactDir string
 	// Codex：Python 沙箱客户端（nil = 未启用）
 	Codex *codex.Client
 }
@@ -36,6 +39,7 @@ type Ask struct {
 
 // ArtifactView 是 Skill 产物的前端展示（经 SSE tool_result 旁路透传，不进模型上下文）。
 type ArtifactView struct {
+	ID   string `json:"id,omitempty"` // 持久化产物 id（ArtifactDir 启用时）
 	Name string `json:"name"`
 	Mime string `json:"mime"`
 	Data string `json:"data,omitempty"` // 图片=base64；文本=csv 原样；空=仅声明文件名

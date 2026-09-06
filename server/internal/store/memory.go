@@ -27,6 +27,7 @@ type memoryStore struct {
 	messages     map[string][]*Message    // conversationID -> messages (有序)
 	documents    map[string]*Document     // id -> doc
 	docChunks    map[string][]*Chunk      // docID -> chunks
+	artifacts    map[string]*Artifact     // id -> artifact
 }
 
 // NewMemory 创建内存版 Store（M0 本地演示用，进程退出数据即失）。
@@ -349,4 +350,72 @@ func (s *memoryStore) SearchChunks(ctx context.Context, userID, query string, to
 		hits = hits[:topK]
 	}
 	return hits, nil
+}
+
+// ---- artifacts ----
+
+func (s *memoryStore) CreateArtifact(ctx context.Context, a *Artifact) error {
+	if a.ID == "" {
+		a.ID = newID()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	a.CreatedAt = now
+	clone := *a
+	if s.artifacts == nil {
+		s.artifacts = map[string]*Artifact{}
+	}
+	s.artifacts[a.ID] = &clone
+	return nil
+}
+
+func (s *memoryStore) GetArtifact(ctx context.Context, id, userID string) (*Artifact, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	a := s.artifacts[id]
+	if a == nil || a.UserID != userID {
+		return nil, ErrNotFound
+	}
+	clone := *a
+	return &clone, nil
+}
+
+func (s *memoryStore) ListArtifacts(ctx context.Context, userID string, limit int) ([]*Artifact, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*Artifact
+	for _, a := range s.artifacts {
+		if a.UserID == userID {
+			clone := *a
+			out = append(out, &clone)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *memoryStore) DeleteArtifact(ctx context.Context, id, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.artifacts[id]
+	if a == nil || a.UserID != userID {
+		return ErrNotFound
+	}
+	delete(s.artifacts, id)
+	return nil
+}
+
+func (s *memoryStore) UpdateArtifactStorageKey(ctx context.Context, id, userID, storageKey string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.artifacts[id]
+	if a == nil || a.UserID != userID {
+		return ErrNotFound
+	}
+	a.StorageKey = storageKey
+	return nil
 }

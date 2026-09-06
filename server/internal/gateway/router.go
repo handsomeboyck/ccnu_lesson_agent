@@ -21,9 +21,10 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	authH := &authService{svc: authSvc}
 	convH := &convService{store: st}
 	libH := &libraryService{store: st, uploadDir: cfg.UploadDir}
+	artH := &artifactService{store: st, artifactDir: cfg.ArtifactDir}
 	skillH := &skillService{loader: loader, registry: reg}
 	chatH := &chatService{store: st, conv: convH, provider: prov, registry: reg,
-		codex: codexCli, uploadDir: cfg.UploadDir, model: modelName}
+		codex: codexCli, uploadDir: cfg.UploadDir, artifactDir: cfg.ArtifactDir, model: modelName}
 
 	mux := http.NewServeMux()
 
@@ -51,6 +52,11 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	mux.HandleFunc("POST /v1/library/files", authH.requireAuth(libH.upload))
 	mux.HandleFunc("GET /v1/library/files", authH.requireAuth(libH.list))
 	mux.HandleFunc("DELETE /v1/library/files/{id}", authH.requireAuth(libH.remove))
+
+	// 产物库（需登录）
+	mux.HandleFunc("GET /v1/artifacts", authH.requireAuth(artH.list))
+	mux.HandleFunc("GET /v1/artifacts/{id}/raw", authH.requireAuth(artH.raw))
+	mux.HandleFunc("DELETE /v1/artifacts/{id}", authH.requireAuth(artH.remove))
 
 	// 对话（SSE，需登录）
 	mux.HandleFunc("POST /v1/chat", authH.requireAuth(chatH.stream))
