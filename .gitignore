@@ -1,0 +1,29 @@
+# --- Node / web ---
+node_modules/
+dist/
+build/
+*.local
+.vite/
+
+# --- Go ---
+server/bin/
+*.exe
+*.test
+coverage.out
+
+# --- env & secrets ---
+.env
+.env.*
+!.env.example
+
+# --- editor / os ---
+.idea/
+.vscode/
+*.suo
+*.user
+.DS_Store
+Thumbs.db
+
+# --- logs ---
+*.log
+npm-debug.log*
