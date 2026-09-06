@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import mammoth from 'mammoth'
+import { artifactIcon } from '../lib/artifactIcon'
 import {
   deleteArtifact,
   fetchArtifact,
@@ -14,7 +16,14 @@ function fmtSize(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
-const PREVIEWABLE = ['image/', 'text/', 'application/json', 'application/pdf', 'text/csv']
+const PREVIEWABLE = [
+  'image/',
+  'text/',
+  'application/json',
+  'text/csv',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]
 
 export default function ArtifactsPage() {
   const [items, setItems] = useState<ArtifactInfo[]>([])
@@ -23,6 +32,8 @@ export default function ArtifactsPage() {
   const [preview, setPreview] = useState<ArtifactInfo | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewText, setPreviewText] = useState('')
+  const [previewHtml, setPreviewHtml] = useState('')
+  const [busyPreview, setBusyPreview] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -39,17 +50,29 @@ export default function ArtifactsPage() {
 
   async function openPreview(a: ArtifactInfo) {
     try {
-      const blob = await fetchArtifact(a.id)
       setPreview(a)
       setPreviewUrl(null)
       setPreviewText('')
+      setPreviewHtml('')
+      setBusyPreview(true)
+      const blob = await fetchArtifact(a.id)
       if (blob.type.startsWith('image/')) {
         setPreviewUrl(URL.createObjectURL(blob))
+      } else if (blob.type === 'application/pdf') {
+        setPreviewUrl(URL.createObjectURL(blob))
+      } else if (
+        blob.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ) {
+        const buf = await blob.arrayBuffer()
+        const res = await mammoth.convertToHtml({ arrayBuffer: buf })
+        setPreviewHtml(res.value)
       } else {
-        setPreviewText((await blob.text()).slice(0, 20000))
+        setPreviewText((await blob.text()).slice(0, 50000))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '预览失败')
+    } finally {
+      setBusyPreview(false)
     }
   }
 
@@ -58,6 +81,7 @@ export default function ArtifactsPage() {
     setPreview(null)
     setPreviewUrl(null)
     setPreviewText('')
+    setPreviewHtml('')
   }
 
   async function download(a: ArtifactInfo) {
@@ -136,10 +160,8 @@ export default function ArtifactsPage() {
             >
               {a.mime.startsWith('image/') ? (
                 <span className="artifact-tile-icon img">🖼</span>
-              ) : a.mime.includes('csv') || a.mime.includes('text') ? (
-                <span className="artifact-tile-icon txt">📄</span>
               ) : (
-                <span className="artifact-tile-icon other">📦</span>
+                <span className="artifact-tile-icon other">{artifactIcon(a.filename, a.mime)}</span>
               )}
               <span className="artifact-tile-name">{a.filename}</span>
               <span className="artifact-tile-meta">
@@ -169,9 +191,17 @@ export default function ArtifactsPage() {
               <span className="toolbar-title">{preview.filename}</span>
               <button onClick={closePreview}>✕</button>
             </div>
-            <div className="modal-body">
-              {previewUrl ? (
-                <img src={previewUrl} alt={preview.filename} className="modal-img" />
+            <div className="modal-body preview-body">
+              {busyPreview ? (
+                <div className="preview-loading">正在加载预览…</div>
+              ) : previewUrl ? (
+                preview?.mime === 'application/pdf' ? (
+                  <iframe src={previewUrl} title="pdf-preview" className="preview-pdf" />
+                ) : (
+                  <img src={previewUrl} alt={preview?.filename ?? ''} className="modal-img" />
+                )
+              ) : previewHtml ? (
+                <div className="preview-docx" dangerouslySetInnerHTML={{ __html: previewHtml }} />
               ) : previewText ? (
                 <pre className="modal-text">{previewText}</pre>
               ) : (
