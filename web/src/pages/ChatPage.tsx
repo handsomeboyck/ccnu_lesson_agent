@@ -334,6 +334,13 @@ export default function ChatPage() {
       {/* 侧栏 */}
       <aside className="sidebar">
         <div className="sidebar-head">
+          <div className="brand-bar">
+            <div className="ccnu-emblem">华</div>
+            <div>
+              <div className="brand-bar-title">华中师范大学</div>
+              <div className="brand-bar-sub">教育版智能学伴</div>
+            </div>
+          </div>
           <button className="btn-new-chat" onClick={newChat}>
             <span className="plus">+</span> 新对话
           </button>
@@ -442,9 +449,9 @@ export default function ChatPage() {
         <div className="messages">
           {messages.length === 0 && !sending && (
             <div className="welcome">
-              <div className="welcome-logo">🎓</div>
-              <h2>教育版智能学伴</h2>
-              <p>多轮对话 · 流式输出 · 输入 <code>/</code> 主动唤起 Skill</p>
+              <div className="ccnu-emblem lg">华</div>
+              <h2 className="ccnu-wordmark">华中师范大学 · 智能学伴</h2>
+              <p>求实创新 · 立德树人 ｜ 多轮对话 · 流式输出 · 输入 <code>/</code> 主动唤起 Skill</p>
               <div className="suggestions">
                 {WELCOME_SUGGESTIONS.map((s) => (
                   <button key={s} className="suggestion" onClick={() => void handleSend(s)}>

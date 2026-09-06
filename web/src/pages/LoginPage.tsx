@@ -29,9 +29,11 @@ export default function LoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-logo">🎓</div>
-        <h1>欢迎回来</h1>
-        <p className="auth-sub">登录教育版智能学伴</p>
+        <div className="ccnu-emblem">华</div>
+        <h1>
+          <span className="ccnu-wordmark">华中师范大学 · 智能学伴</span>
+        </h1>
+        <p className="auth-sub">求实创新 · 立德树人 —— 教育版 AI 学伴</p>
         <form onSubmit={onSubmit} className="auth-form">
           <label>
             用户名

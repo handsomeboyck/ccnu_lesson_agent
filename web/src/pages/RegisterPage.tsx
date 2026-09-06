@@ -41,9 +41,11 @@ export default function RegisterPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-logo">🎓</div>
-        <h1>创建账号</h1>
-        <p className="auth-sub">加入教育版智能学伴</p>
+        <div className="ccnu-emblem">华</div>
+        <h1>
+          <span className="ccnu-wordmark">华中师范大学 · 智能学伴</span>
+        </h1>
+        <p className="auth-sub">创建账号，开始与教育版 AI 学伴互动</p>
         <form onSubmit={onSubmit} className="auth-form">
           <label>
             用户名
