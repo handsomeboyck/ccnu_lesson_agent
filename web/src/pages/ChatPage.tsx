@@ -17,7 +17,7 @@ import {
 import { streamChat } from '../api/sse'
 import { useAuth } from '../store/auth'
 import HistoryArtifacts from '../components/HistoryArtifacts'
-import { artifactIcon } from '../lib/artifactIcon'
+import FileIcon from '../components/FileIcon'
 import { MODE_LABELS, type Conversation, type Mode, type SSEEvent } from '../types'
 
 // 本地展示消息（含流式中占位）
@@ -498,7 +498,9 @@ export default function ChatPage() {
                                           src={`data:${a.mime};base64,${a.data}`}
                                           alt={a.name}
                                         />
-                                        <span className="artifact-name">{artifactIcon(a.name, a.mime)} {a.name} ⬇</span>
+                                        <span className="artifact-name">
+                                          <FileIcon name={a.name} mime={a.mime} size={16} /> {a.name} ⬇
+                                        </span>
                                       </div>
                                     ) : (
                                       <button
@@ -508,7 +510,8 @@ export default function ChatPage() {
                                         disabled={!a.id && !a.data}
                                         onClick={() => void downloadArtifact(a).catch(() => {})}
                                       >
-                                        {artifactIcon(a.name, a.mime)} {a.name}
+                                        <FileIcon name={a.name} mime={a.mime} size={16} />
+                                        {a.name}
                                         {a.data && a.mime === 'text/csv' && a.data.length < 2000
                                           ? `（${a.data.length} 字符）`
                                           : a.id

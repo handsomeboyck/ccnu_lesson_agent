@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import mammoth from 'mammoth'
-import { artifactIcon } from '../lib/artifactIcon'
+import FileIcon from '../components/FileIcon'
 import {
   deleteArtifact,
   fetchArtifact,
@@ -161,7 +161,9 @@ export default function ArtifactsPage() {
               {a.mime.startsWith('image/') ? (
                 <span className="artifact-tile-icon img">🖼</span>
               ) : (
-                <span className="artifact-tile-icon other">{artifactIcon(a.filename, a.mime)}</span>
+                <span className="artifact-tile-icon other">
+                  <FileIcon name={a.filename} mime={a.mime} size={52} />
+                </span>
               )}
               <span className="artifact-tile-name">{a.filename}</span>
               <span className="artifact-tile-meta">

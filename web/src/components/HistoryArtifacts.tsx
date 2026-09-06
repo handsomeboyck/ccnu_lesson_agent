@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react'
 import mammoth from 'mammoth'
 import { downloadArtifact, fetchArtifact, type ServerMessageArtifact } from '../api/client'
-import { artifactIcon } from '../lib/artifactIcon'
+import FileIcon from './FileIcon'
 
 /** 拉取产物原始内容：优先内嵌 data（实时产物），否则按 id 拉取。 */
 async function fetchBytes(a: ServerMessageArtifact): Promise<Blob> {
@@ -134,9 +134,9 @@ export default function HistoryArtifacts({ artifacts }: { artifacts: ServerMessa
         <div className="modal-mask" onClick={closePreview}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <span className="toolbar-title">
-                {artifactIcon(preview.artifact.name, preview.artifact.mime)} 预览：
-                {preview.artifact.name}
+              <span className="toolbar-title title-with-icon">
+                <FileIcon name={preview.artifact.name} mime={preview.artifact.mime} size={20} />
+                预览：{preview.artifact.name}
               </span>
               <button onClick={closePreview}>✕</button>
             </div>
@@ -207,7 +207,7 @@ function ArtifactCard({ a, onPreview }: { a: ServerMessageArtifact; onPreview: (
           onClick={previewable ? onPreview : () => void download()}
           title={previewable ? '点击预览' : '点击下载'}
         >
-          <span className="artifact-card-emoji">{artifactIcon(a.name, a.mime)}</span>
+          <FileIcon name={a.name} mime={a.mime} size={56} />
           <span className="artifact-card-name">{a.name}</span>
         </button>
       )}

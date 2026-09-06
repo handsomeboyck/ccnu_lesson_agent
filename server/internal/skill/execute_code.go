@@ -25,9 +25,10 @@ type executeCode struct{}
 func (s *executeCode) Name() string { return "execute_code" }
 func (s *executeCode) Description() string {
 	return "在 Python 代码沙箱中执行一段代码并返回运行结果。可处理：复杂文档解析（含老式 .doc、扫描件可用 pytesseract OCR）、" +
-		"表格处理、数据分析、matplotlib 绘图、以及生成 .docx/.pptx/.xlsx/.pdf 等文件。当用户请求超出内置解析能力（如 .doc、OCR、复杂计算/绘图）、" +
-		"或希望得到可下载的文件（如试卷 docx、课件 pptx、图表 png）时调用。保存文件请写到当前工作目录（相对路径即可），" +
-		"文件名用英文/拼音避免编码问题；生成的 png/docx/pptx/xlsx/pdf/csv 等会被自动收集为用户可下载的产物。"
+		"表格处理、数据分析、matplotlib 绘图、生成 .docx/.pptx/.xlsx/.pdf 等文件。当用户请求超出内置解析能力（如 .doc、OCR、复杂计算/绘图）、" +
+		"或希望得到可下载的文件（如试卷 docx、课件 pptx、图表 png、表格 xlsx、报告 pdf）时调用。保存文件请写到当前工作目录（相对路径即可），" +
+		"文件名用英文/拼音避免编码问题；生成的 png/docx/pptx/xlsx/pdf/csv 等会被自动收集为用户可下载的产物。**生成 .pptx 后系统会自动转出同名 .pdf 供网页预览**。" +
+		"生成 PDF 可用 reportlab（中文用 UnicodeCIDFont('STSong-Light')）或 fpdf2；matplotlib 输出 pdf 亦可。"
 }
 func (s *executeCode) Modes() []string { return []string{} } // 全部模式
 

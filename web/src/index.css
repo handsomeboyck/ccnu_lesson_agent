@@ -634,8 +634,21 @@ textarea {
   background: #fff;
 }
 .artifact-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
   color: var(--text-dim);
+}
+.title-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.file-icon {
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
 }
 .artifact-file {
   display: inline-flex;
@@ -1214,19 +1227,26 @@ button.artifact-file:disabled {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 120px;
+  gap: 8px;
+  min-height: 150px;
+  padding: 12px 8px;
   background: linear-gradient(160deg, #f4f7fc, #eaf0fa);
   border: none;
   cursor: pointer;
-  padding: 8px;
 }
-.artifact-card-icon:hover .artifact-card-emoji {
-  transform: scale(1.1);
+.artifact-card-icon:hover .file-icon {
+  transform: scale(1.06);
 }
-.artifact-card-emoji {
-  font-size: 40px;
+.artifact-card-icon .file-icon {
   transition: transform 0.15s;
+}
+.artifact-card-icon .artifact-card-name {
+  font-size: 12px;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .artifact-card-name {
   font-size: 12px;

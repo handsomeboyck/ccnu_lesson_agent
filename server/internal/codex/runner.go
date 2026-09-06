@@ -121,6 +121,58 @@ func (r *Runner) Run(ctx context.Context, job *Job) (*ExecResponse, error) {
 	return resp, nil
 }
 
+// ConvertOfficeToPDF 在作业产物里查找 .pptx，用沙箱镜像内置 LibreOffice headless
+// 转出同名 .pdf（供前端网页预览），并合并回产物列表。转换失败不影响原产物。
+func (r *Runner) ConvertOfficeToPDF(ctx context.Context, job *Job, arts []Artifact) []Artifact {
+	type pdfPlan struct {
+		pptx string // out 目录内 pptx 相对名
+		pdf  string
+	}
+	var plans []pdfPlan
+	for _, a := range arts {
+		if strings.ToLower(filepath.Ext(a.Name)) != ".pptx" {
+			continue
+		}
+		pdfName := strings.TrimSuffix(a.Name, filepath.Ext(a.Name)) + ".pdf"
+		if _, err := os.Stat(filepath.Join(job.OutDir, pdfName)); err == nil {
+			continue // 已有同名 pdf（代码里自己转了）
+		}
+		plans = append(plans, pdfPlan{pptx: a.Name, pdf: pdfName})
+	}
+	if len(plans) == 0 {
+		return arts
+	}
+	for _, p := range plans {
+		convCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		containerName := "codex_conv_" + job.ID
+		// 复用沙箱镜像（含 LibreOffice）；--entrypoint soffice 覆盖 python
+		cmd := exec.CommandContext(convCtx, "docker",
+			"run", "--rm", "--name", containerName,
+			"--network=none",
+			"--memory=1g", "--cpus=1",
+			"--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=128m",
+			"--user", "1000:1000",
+			"--security-opt", "no-new-privileges",
+			"-e", "HOME=/tmp",
+			"-v", job.OutDir+":/out:rw",
+			"-w", "/out",
+			"--entrypoint", "soffice",
+			r.SandboxImage,
+			"--headless", "--norestore", "--nologo",
+			"-env:UserInstallation=file:///tmp/lo_profile",
+			"--convert-to", "pdf", "--outdir", "/out", p.pptx,
+		)
+		var stderr limitedBuffer
+		stderr.limit = 8 << 10
+		cmd.Stderr = &stderr
+		_ = cmd.Run()
+		cancel()
+		_ = exec.CommandContext(context.Background(), "docker", "rm", "-f", containerName).Run()
+		// 成功与否不强求：若 /out 出现同名 pdf 则 collectArtifacts 自会捕获
+	}
+	return collectArtifacts(job.OutDir)
+}
+
 func collectArtifacts(outDir string) []Artifact {
 	var out []Artifact
 	_ = filepath.WalkDir(outDir, func(p string, d os.DirEntry, err error) error {
