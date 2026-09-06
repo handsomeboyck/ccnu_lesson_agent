@@ -138,6 +138,8 @@ export interface ServerMessageArtifact {
   id: string
   name: string
   mime: string
+  /** 实时流式（SSE tool_result）额外携带 base64 data；历史回看接口不含此字段。 */
+  data?: string
 }
 export interface ServerMessage {
   id: string
@@ -266,4 +268,24 @@ export async function fetchArtifact(id: string, download = false): Promise<Blob>
 
 export function deleteArtifact(id: string): Promise<void> {
   return request(`/v1/artifacts/${id}`, { method: 'DELETE', auth: true })
+}
+
+/** 统一下载入口：优先从服务器按 id 取 blob（可靠下载）；无 id 时回退 data URL。 */
+export async function downloadArtifact(a: { id?: string; name: string; mime: string; data?: string }): Promise<void> {
+  let blob: Blob | null = null
+  if (a.id) {
+    blob = await fetchArtifact(a.id, true)
+  } else if (a.data) {
+    const res = await fetch(`data:${a.mime};base64,${a.data}`)
+    blob = res.ok ? await res.blob() : null
+  }
+  if (!blob) throw new ApiError(404, '产物不存在，无法下载')
+  const u = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = u
+  link.download = a.name
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(u), 5000)
 }

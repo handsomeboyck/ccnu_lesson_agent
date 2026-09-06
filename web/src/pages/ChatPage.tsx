@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   deleteConversation,
+  downloadArtifact,
   listConversations,
   listMessages,
   listSkills,
@@ -29,6 +30,7 @@ interface DisplayMsg {
 
 // 一次工具调用（卡片展示）
 interface ToolArtifact {
+  id?: string
   name: string
   mime: string
   data?: string
@@ -175,14 +177,36 @@ export default function ChatPage() {
         } else if (ev.event === 'tool_result') {
           const name = String(data.name ?? '')
           const summary = String(data.summary ?? '执行完成')
-          const artifacts = Array.isArray(data.artifacts)
-            ? (data.artifacts as unknown[]).map((a) => a as ToolArtifact)
-            : undefined
+          const rawArts = Array.isArray(data.artifacts)
+            ? (data.artifacts as unknown[])
+            : []
+          const artifacts = rawArts.map((a) => a as ToolArtifact)
           setToolSteps((prev) =>
             prev.map((s) =>
               s.name === name && s.running ? { ...s, summary, running: false, artifacts } : s,
             ),
           )
+          // 产物同步挂到本条 assistant 消息：流结束后 tool-steps 卸载，
+          // 由 HistoryArtifacts（带 data 即时显示 + 服务器 blob 下载）无缝接管，避免"闪一下就没了"。
+          const persistent = artifacts.filter((a) => typeof a.id === 'string' && a.id)
+          if (persistent.length > 0) {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1]
+              if (!last || last.role !== 'assistant' || !last.pending) return prev
+              const known = new Set((last.artifacts ?? []).map((x) => x.id))
+              const fresh = persistent
+                .filter((a) => !known.has(a.id as string))
+                .map((a) => ({
+                  id: a.id as string,
+                  name: a.name,
+                  mime: a.mime,
+                  data: a.data,
+                }))
+              if (fresh.length === 0) return prev
+              const merged = [...(last.artifacts ?? []), ...fresh]
+              return [...prev.slice(0, -1), { ...last, artifacts: merged }]
+            })
+          }
         } else if (ev.event === 'ask') {
           const question = String(data.question ?? '')
           const options = Array.isArray(data.options)
@@ -450,20 +474,24 @@ export default function ChatPage() {
                                 <div className="tool-artifacts">
                                   {t.artifacts.map((a, i) =>
                                     a.data && a.mime.startsWith('image/') ? (
-                                      <a
+                                      <div
                                         key={i}
                                         className="artifact-img-wrap"
-                                        href={`data:${a.mime};base64,${a.data}`}
-                                        download={a.name}
+                                        role="button"
+                                        tabIndex={0}
                                         title={`下载 ${a.name}`}
+                                        onClick={() => void downloadArtifact(a).catch(() => {})}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') void downloadArtifact(a).catch(() => {})
+                                        }}
                                       >
                                         <img
                                           className="artifact-img"
                                           src={`data:${a.mime};base64,${a.data}`}
                                           alt={a.name}
                                         />
-                                        <span className="artifact-name">📎 {a.name}</span>
-                                      </a>
+                                        <span className="artifact-name">📎 {a.name} ⬇</span>
+                                      </div>
                                     ) : (
                                       <span key={i} className="artifact-file">
                                         📄 {a.name}
