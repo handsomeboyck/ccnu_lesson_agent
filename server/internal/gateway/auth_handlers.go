@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/auth"
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
 )
 
 // authService 是认证相关 HTTP 处理器。
@@ -24,20 +25,22 @@ func (a *authService) register(w http.ResponseWriter, r *http.Request) {
 		Username    string `json:"username"`
 		Password    string `json:"password"`
 		DisplayName string `json:"display_name"`
-		Role        string `json:"role"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	// 安全：注册一律 student，忽略/拒绝请求中的 role（管理员由受控方式提升，见部署文档）
 	u, err := a.svc.Register(r.Context(), auth.RegisterInput{
-		Username: in.Username, Password: in.Password,
-		DisplayName: in.DisplayName, Role: in.Role,
+		Username:    in.Username,
+		Password:    in.Password,
+		DisplayName: in.DisplayName,
+		Role:        store.RoleStudent,
 	})
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrInvalidInput):
-			writeError(w, http.StatusBadRequest, "username >= 3 chars, password >= 8 chars, valid role required")
+			writeError(w, http.StatusBadRequest, "username >= 3 chars, password >= 8 chars")
 		case errors.Is(err, auth.ErrUserExists):
 			writeError(w, http.StatusConflict, "username already exists")
 		default:
