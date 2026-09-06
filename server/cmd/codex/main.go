@@ -196,16 +196,26 @@ func readCPUCount() int {
 	return strings.Count(string(data), "processor\t:")
 }
 
-// collectContainerStats 用 docker stats --no-stream 采样本 compose 栈内的容器。
-// 输出每行一个容器，字段形如 {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}。
+// collectContainerStats 采样本 compose 项目内容器（docker stats --no-stream）。
+// 通过容器名前缀匹配：当前 compose 项目目录为 /opt/ccnu_lesson_agent（项目名同目录名）。
 func collectContainerStats(out *[]ContainerStat) {
-	// 通过容器名后缀匹配（compose 项目名动态，取本 worker 自身前缀）
-	self, _ := os.Hostname()
-	prefix := self
-	if i := strings.Index(self, "-codex-"); i > 0 {
-		prefix = self[:i]
+	// 1) 列出本项目容器名（name 前缀 ccnu_lesson_agent）
+	ps, err := exec.CommandContext(context.Background(), "docker",
+		"ps", "--filter", "name=ccnu_lesson_agent", "--format", "{{.Names}}").Output()
+	if err != nil {
+		return
 	}
-	args := []string{"stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"}
+	var names []string
+	for _, n := range strings.Fields(string(ps)) {
+		if strings.HasPrefix(n, "ccnu_lesson_agent") {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+	// 2) 对这批容器取一次 stats（每行一个容器）
+	args := append([]string{"stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"}, names...)
 	cmd := exec.CommandContext(context.Background(), "docker", args...)
 	b, err := cmd.Output()
 	if err != nil {
@@ -219,10 +229,7 @@ func collectContainerStats(out *[]ContainerStat) {
 		if len(f) != 4 {
 			continue
 		}
-		cs := ContainerStat{Name: f[0], CPU: f[1], Mem: f[2], MemPerc: f[3]}
-		if prefix == "" || strings.HasPrefix(cs.Name, prefix) {
-			*out = append(*out, cs)
-		}
+		*out = append(*out, ContainerStat{Name: f[0], CPU: f[1], Mem: f[2], MemPerc: f[3]})
 	}
 }
 
