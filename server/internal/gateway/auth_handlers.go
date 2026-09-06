@@ -138,6 +138,23 @@ func (a *authService) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// requireRole 在 requireAuth 基础上校验角色（如 teacher/admin 才可管理技能）。
+// 用法：authH.requireRole(next, store.RoleTeacher, store.RoleAdmin)
+func (a *authService) requireRole(next http.HandlerFunc, roles ...string) http.HandlerFunc {
+	allowed := map[string]bool{}
+	for _, r := range roles {
+		allowed[r] = true
+	}
+	return a.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		claims := claimsFrom(r.Context())
+		if claims == nil || !allowed[claims.Role] {
+			writeError(w, http.StatusForbidden, "permission denied")
+			return
+		}
+		next(w, r)
+	})
+}
+
 // claimsFrom 从 context 取 Claims。
 func claimsFrom(ctx context.Context) *auth.Claims {
 	c, _ := ctx.Value(claimsKey).(*auth.Claims)

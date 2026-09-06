@@ -16,10 +16,11 @@ import (
 
 // New 构建全部路由。
 func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.Provider,
-	reg *skill.Registry, modelName string) http.Handler {
+	reg *skill.Registry, loader *skill.Loader, modelName string) http.Handler {
 	authH := &authService{svc: authSvc}
 	convH := &convService{store: st}
 	libH := &libraryService{store: st, uploadDir: cfg.UploadDir}
+	skillH := &skillService{loader: loader, registry: reg}
 	chatH := &chatService{store: st, conv: convH, provider: prov, registry: reg, model: modelName}
 
 	mux := http.NewServeMux()
@@ -52,22 +53,11 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	// 对话（SSE，需登录）
 	mux.HandleFunc("POST /v1/chat", authH.requireAuth(chatH.stream))
 
-	// Skill 清单 + 命令清单（/ 菜单）
-	mux.HandleFunc("GET /v1/skills", authH.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		all := reg.All()
-		items := make([]map[string]any, 0, len(all))
-		for _, s := range all {
-			items = append(items, map[string]any{
-				"name":        s.Name(),
-				"description": s.Description(),
-				"modes":       s.Modes(),
-			})
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"skills":   items,
-			"commands": reg.Commands(),
-		})
-	}))
+	// Skill 清单 + 命令清单 + 文档技能管理（需登录；改动建议仅 teacher/admin）
+	mux.HandleFunc("GET /v1/skills", authH.requireAuth(skillH.list))
+	mux.HandleFunc("GET /v1/skills/{name}", authH.requireAuth(skillH.docDetail))
+	mux.HandleFunc("PUT /v1/skills/{name}", authH.requireRole(skillH.save, store.RoleTeacher, store.RoleAdmin))
+	mux.HandleFunc("DELETE /v1/skills/{name}", authH.requireRole(skillH.remove, store.RoleTeacher, store.RoleAdmin))
 
 	handler := http.Handler(mux)
 	handler = corsMiddleware(cfg.CORSOrigins, handler)

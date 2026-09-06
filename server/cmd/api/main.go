@@ -52,7 +52,8 @@ func main() {
 	// 2) 文档型 Skill（skills/ 目录下每个 SKILL.md）——动态加载，无需改代码。
 	reg := skill.NewRegistry()
 	skill.RegisterDefaults(reg)
-	if docs, err := skill.NewLoader(cfg.SkillsDir).Load(); err != nil {
+	loader := skill.NewLoader(cfg.SkillsDir)
+	if docs, err := loader.Load(); err != nil {
 		log.Printf("skill loader: %v", err)
 	} else {
 		for _, d := range docs {
@@ -64,7 +65,7 @@ func main() {
 	// LLM Provider：OPENAI_API_KEY 存在 → OpenAI 兼容；否则 Demo。
 	prov := model.New(cfg)
 
-	apiHandler := gateway.New(cfg, authSvc, st, prov, reg, cfg.OpenAIModel)
+	apiHandler := gateway.New(cfg, authSvc, st, prov, reg, loader, cfg.OpenAIModel)
 
 	// 前端静态托管（SPA）：/v1、/healthz 走 API，其余回退 index.html。
 	handler := withStatic(apiHandler, cfg.WebDist)

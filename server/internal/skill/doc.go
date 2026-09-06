@@ -35,6 +35,7 @@ type DocMeta struct {
 type DocSkill struct {
 	Meta    DocMeta  // frontmatter
 	Content string   // SKILL.md markdown 正文（不含 frontmatter）
+	Raw     string   // SKILL.md 完整原文（含 frontmatter，供编辑器/详情展示）
 	Dir     string   // 技能目录绝对路径
 	Files   []string // 目录内附件相对路径（脚本/模板等，SKILL.md 之外）
 }
@@ -83,7 +84,7 @@ func parseSkillDoc(path string) (*DocSkill, error) {
 	if meta.Description == "" {
 		return nil, fmt.Errorf("%w: %s has empty description", errNotSkill, path)
 	}
-	return &DocSkill{Meta: meta, Content: body, Dir: filepath.Dir(path)}, nil
+	return &DocSkill{Meta: meta, Content: body, Raw: s, Dir: filepath.Dir(path)}, nil
 }
 
 // Loader 扫描技能目录，目录需以 SKILL.md 为入口（一层子目录）。
@@ -139,6 +140,51 @@ func (d *DocSkill) listFiles() {
 		d.Files = append(d.Files, filepath.ToSlash(rel))
 		return nil
 	})
+}
+
+// LoadOne 加载指定技能目录（<root>/<name>/SKILL.md）。
+func (l *Loader) LoadOne(name string) (*DocSkill, error) {
+	if name == "" || strings.ContainsAny(name, `/\`+"..") {
+		return nil, fmt.Errorf("skill: illegal name %q", name)
+	}
+	md := filepath.Join(l.dir, name, "SKILL.md")
+	doc, err := parseSkillDoc(md)
+	if err != nil {
+		return nil, err
+	}
+	doc.listFiles()
+	return doc, nil
+}
+
+// Write 创建/覆盖技能（<root>/<name>/SKILL.md），要求 frontmatter name 与目录名一致。
+func (l *Loader) Write(name, content string) (*DocSkill, error) {
+	if name == "" || strings.ContainsAny(name, `/\`+"..") {
+		return nil, fmt.Errorf("skill: illegal name %q", name)
+	}
+	dir := filepath.Join(l.dir, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		return nil, err
+	}
+	doc, err := parseSkillDoc(filepath.Join(dir, "SKILL.md"))
+	if err != nil {
+		return nil, err
+	}
+	if doc.Meta.Name != name {
+		return nil, fmt.Errorf("skill: frontmatter name %q != folder name %q", doc.Meta.Name, name)
+	}
+	doc.listFiles()
+	return doc, nil
+}
+
+// Delete 删除技能目录。
+func (l *Loader) Delete(name string) error {
+	if name == "" || strings.ContainsAny(name, `/\`+"..") {
+		return fmt.Errorf("skill: illegal name %q", name)
+	}
+	return os.RemoveAll(filepath.Join(l.dir, name))
 }
 
 // Name / Description 供 Skill 接口与 UI 使用。

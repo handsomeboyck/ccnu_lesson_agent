@@ -90,6 +90,21 @@ func (r *Registry) Get(name string) (Skill, bool) {
 	return s, ok
 }
 
+// Remove 按名称移除 Skill（含命令别名），供运行时技能管理使用。
+func (r *Registry) Remove(name string) {
+	s, ok := r.byName[name]
+	if !ok {
+		return
+	}
+	delete(r.byName, name)
+	if cp, ok := s.(CommandProvider); ok {
+		for _, c := range append(cp.Commands(), s.Name()) {
+			delete(r.aliases, strings.ToLower(c))
+		}
+	}
+	delete(r.aliases, strings.ToLower(name))
+}
+
 // LookupCommand 按命令别名（不含 "/"）查找 Skill。
 func (r *Registry) LookupCommand(cmd string) (Skill, bool) {
 	s, ok := r.aliases[strings.ToLower(strings.TrimSpace(cmd))]
