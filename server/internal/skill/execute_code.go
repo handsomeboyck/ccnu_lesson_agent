@@ -143,18 +143,31 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 	if sb.Len() == 0 {
 		sb.WriteString("（无输出，代码正常结束）\n")
 	}
-	// 产物清单
+
+	// 产物：图片转为 data URL 供前端渲染；csv/文本原样；超大只列名
+	var views []ArtifactView
 	if len(resp.Artifacts) > 0 {
 		names := make([]string, 0, len(resp.Artifacts))
 		for _, a := range resp.Artifacts {
 			names = append(names, a.Name)
+			v := ArtifactView{Name: a.Name, Mime: a.Mime}
+			switch {
+			case strings.HasPrefix(a.Mime, "image/"):
+				if len(a.Data) > 0 && len(a.Data) <= 4<<20 { // base64 ≤ 4MB 可展示
+					v.Data = a.Data
+				}
+			case len(a.Data) > 0 && len(a.Data) <= 300<<10:
+				v.Data = a.Data
+			}
+			views = append(views, v)
 		}
 		sb.WriteString("\n**生成文件：** " + strings.Join(names, "、") + "\n")
 	}
 	return &Result{
-		Content: sb.String(),
-		Summary: fmt.Sprintf("代码已执行（退出码 %d%s）", resp.ExitCode, map[bool]string{true: "，超时", false: ""}[resp.TimedOut]),
-		Done:    false, // 交给模型基于 stdout 组织答复
+		Content:   sb.String(),
+		Summary:   fmt.Sprintf("代码已执行（退出码 %d%s）", resp.ExitCode, map[bool]string{true: "，超时", false: ""}[resp.TimedOut]),
+		Artifacts: views,
+		Done:      false, // 交给模型基于 stdout 组织答复
 	}, nil
 }
 

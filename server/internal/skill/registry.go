@@ -34,13 +34,20 @@ type Ask struct {
 	Options  []string `json:"options,omitempty"` // 快捷选项（可选）
 }
 
+// ArtifactView 是 Skill 产物的前端展示（经 SSE tool_result 旁路透传，不进模型上下文）。
+type ArtifactView struct {
+	Name string `json:"name"`
+	Mime string `json:"mime"`
+	Data string `json:"data,omitempty"` // 图片=base64；文本=csv 原样；空=仅声明文件名
+}
+
 // Result 是 Skill 执行结果，回填给模型继续推理。
 type Result struct {
-	Content   string `json:"content"`             // 给模型的文本结果（markdown 等）
-	Summary   string `json:"summary"`             // 给前端卡片的结果摘要
-	Artifacts []any  `json:"artifacts,omitempty"` // 结构化产物（题目 JSON 等）
-	Done      bool   `json:"done"`                // true=任务完成无需再让模型总结
-	Ask       *Ask   `json:"ask,omitempty"`       // 非空 = 需向学生提问并等待
+	Content   string         `json:"content"`             // 给模型的文本结果（markdown 等）
+	Summary   string         `json:"summary"`             // 给前端卡片的结果摘要
+	Artifacts []ArtifactView `json:"artifacts,omitempty"` // 前端产物视图（不走模型上下文）
+	Done      bool           `json:"done"`                // true=任务完成无需再让模型总结
+	Ask       *Ask           `json:"ask,omitempty"`       // 非空 = 需向学生提问并等待
 }
 
 // Skill 接口：所有内置 Skill 实现之。

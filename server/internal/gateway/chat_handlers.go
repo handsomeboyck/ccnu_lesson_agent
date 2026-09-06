@@ -133,10 +133,14 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 			}
 		case agent.EventToolResult:
-			writeSSE(w, "tool_result", map[string]any{
+			payload := map[string]any{
 				"name":    ev.Tool.Name,
 				"summary": ev.Summary,
-			})
+			}
+			if len(ev.Artifacts) > 0 {
+				payload["artifacts"] = ev.Artifacts
+			}
+			writeSSE(w, "tool_result", payload)
 			flusher.Flush()
 		case agent.EventAsk:
 			pendingAsk = &skill.Ask{Question: ev.Question, Options: ev.Options}

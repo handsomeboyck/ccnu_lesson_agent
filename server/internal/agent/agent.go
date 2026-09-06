@@ -41,14 +41,15 @@ const (
 
 // Event 是从 agent 流出的编排事件。
 type Event struct {
-	Kind     EventKind
-	Content  string          // delta 文本 / tool 错误信息
-	Tool     *model.ToolCall // tool_call 时携带
-	Summary  string          // tool_result 摘要（给前端卡片）
-	Question string          // ask 事件的问题
-	Options  []string        // ask 事件的快捷选项
-	Usage    *model.Usage    // 累计用量（EventEnd 时给出）
-	Err      error
+	Kind      EventKind
+	Content   string               // delta 文本 / tool 错误信息
+	Tool      *model.ToolCall      // tool_call 时携带
+	Summary   string               // tool_result 摘要（给前端卡片）
+	Artifacts []skill.ArtifactView // tool_result 产物（图片/csv，旁路给前端，不进模型）
+	Question  string               // ask 事件的问题
+	Options   []string             // ask 事件的快捷选项
+	Usage     *model.Usage         // 累计用量（EventEnd 时给出）
+	Err       error
 }
 
 // SystemPrompt 依据会话模式返回系统提示词（单 Agent 多模式的核心差异化配置）。
@@ -144,18 +145,25 @@ func emitCommandExec(ctx context.Context, out chan<- Event, reg *skill.Registry,
 	execCtx, cancel := context.WithTimeout(ctx, skillTimeout)
 	defer cancel()
 	res, err := reg.Execute(execCtx, env, s.Name(), args)
+	emitResult := func(summary string) Event {
+		ev := Event{Kind: EventToolResult, Tool: tc, Summary: summary}
+		if res != nil {
+			ev.Artifacts = res.Artifacts
+		}
+		return ev
+	}
 	if err != nil {
-		out <- Event{Kind: EventToolResult, Tool: tc, Summary: "执行失败：" + err.Error()}
+		out <- emitResult("执行失败：" + err.Error())
 		out <- Event{Kind: EventError, Err: err}
 		return
 	}
 	if res.Ask != nil && res.Ask.Question != "" {
-		out <- Event{Kind: EventToolResult, Tool: tc, Summary: res.Summary}
+		out <- emitResult(res.Summary)
 		out <- Event{Kind: EventAsk, Question: res.Ask.Question, Options: res.Ask.Options}
 		out <- Event{Kind: EventEnd}
 		return
 	}
-	out <- Event{Kind: EventToolResult, Tool: tc, Summary: res.Summary}
+	out <- emitResult(res.Summary)
 	streamMarkdown(ctx, out, res.Content)
 	out <- Event{Kind: EventEnd}
 }
@@ -211,14 +219,18 @@ func runLLMLoop(ctx context.Context, prov model.Provider, reg *skill.Registry, e
 
 		// 逐个执行；若某 Skill 返回 Ask（如 ask_user），暂停等学生回答，结束本轮。
 		for _, tc := range calls {
-			res := execSkill(ctx, reg, env, tc)
-			msgs = append(msgs, model.Msg{Role: model.RoleTool, ToolCallID: tc.ID, Content: res})
-			out <- Event{Kind: EventToolResult, Tool: &tc, Summary: summaryOf(res)}
+			res, execErr := execSkill(ctx, reg, env, tc)
+			msgs = append(msgs, model.Msg{Role: model.RoleTool, ToolCallID: tc.ID, Content: toolContent(res, execErr, tc.Name)})
+			ev := Event{Kind: EventToolResult, Tool: &tc, Summary: summarizeOf(res, execErr, tc.Name)}
+			if res != nil && len(res.Artifacts) > 0 {
+				ev.Artifacts = res.Artifacts
+			}
+			out <- ev
 			if ctx.Err() != nil {
 				return
 			}
-			if ask := extractAsk(res); ask != nil {
-				out <- Event{Kind: EventAsk, Question: ask.Question, Options: ask.Options}
+			if res != nil && res.Ask != nil && res.Ask.Question != "" {
+				out <- Event{Kind: EventAsk, Question: res.Ask.Question, Options: res.Ask.Options}
 				out <- Event{Kind: EventEnd, Usage: total}
 				return
 			}
@@ -229,43 +241,41 @@ func runLLMLoop(ctx context.Context, prov model.Provider, reg *skill.Registry, e
 	out <- Event{Kind: EventEnd, Usage: total}
 }
 
-// execSkill 执行单个工具调用，返回给模型的 tool 消息内容（JSON 字符串）。
-func execSkill(ctx context.Context, reg *skill.Registry, env *skill.Env, tc model.ToolCall) string {
+// execSkill 执行单个工具调用，返回 Skill 结果（含产物，供旁路下发）。
+func execSkill(ctx context.Context, reg *skill.Registry, env *skill.Env, tc model.ToolCall) (*skill.Result, error) {
 	execCtx, cancel := context.WithTimeout(ctx, skillTimeout)
 	defer cancel()
-	res, err := reg.Execute(execCtx, env, tc.Name, tc.Arguments)
+	return reg.Execute(execCtx, env, tc.Name, tc.Arguments)
+}
+
+// toolContent 回填给模型的纯文本（产物数据不进模型上下文）。
+func toolContent(res *skill.Result, err error, name string) string {
 	if err != nil {
-		msg := fmt.Sprintf("Skill %q 执行失败：%v", tc.Name, err)
-		b, _ := json.Marshal(map[string]any{"error": msg})
-		return string(b)
+		return fmt.Sprintf("Skill %q 执行失败：%v", name, err)
 	}
-	b, _ := json.Marshal(res)
-	return string(b)
+	if strings.TrimSpace(res.Content) != "" {
+		return res.Content
+	}
+	if res.Ask != nil && res.Ask.Question != "" {
+		return "需要向用户提问：" + res.Ask.Question
+	}
+	if res.Summary != "" {
+		return res.Summary
+	}
+	return "Skill 已执行"
 }
 
-// extractAsk 从 tool 结果 JSON 中提取 Ask 载荷。
-func extractAsk(res string) *skill.Ask {
-	var r skill.Result
-	if err := json.Unmarshal([]byte(res), &r); err != nil {
-		return nil
+// summarizeOf 从结果构造卡片摘要。
+func summarizeOf(res *skill.Result, err error, name string) string {
+	if err != nil {
+		return "执行失败：" + err.Error()
 	}
-	return r.Ask
-}
-
-// summaryOf 从 tool 结果 JSON 提取给前端展示的摘要。
-func summaryOf(res string) string {
-	var r skill.Result
-	if err := json.Unmarshal([]byte(res), &r); err == nil {
-		if r.Summary != "" {
-			return r.Summary
-		}
-		if r.Content != "" {
-			s := []rune(r.Content)
-			if len(s) > 60 {
-				return string(s[:60]) + "…"
-			}
-			return r.Content
-		}
+	if res.Summary != "" {
+		return res.Summary
+	}
+	s := []rune(res.Content)
+	if len(s) > 60 {
+		return string(s[:60]) + "…"
 	}
 	return "Skill 已执行"
 }

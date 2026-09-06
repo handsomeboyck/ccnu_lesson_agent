@@ -25,11 +25,17 @@ interface DisplayMsg {
 }
 
 // 一次工具调用（卡片展示）
+interface ToolArtifact {
+  name: string
+  mime: string
+  data?: string
+}
 interface ToolStep {
   key: string
   name: string
   summary?: string
   running: boolean
+  artifacts?: ToolArtifact[]
 }
 
 // ask_user 等待回答状态
@@ -161,8 +167,13 @@ export default function ChatPage() {
         } else if (ev.event === 'tool_result') {
           const name = String(data.name ?? '')
           const summary = String(data.summary ?? '执行完成')
+          const artifacts = Array.isArray(data.artifacts)
+            ? (data.artifacts as unknown[]).map((a) => a as ToolArtifact)
+            : undefined
           setToolSteps((prev) =>
-            prev.map((s) => (s.name === name && s.running ? { ...s, summary, running: false } : s)),
+            prev.map((s) =>
+              s.name === name && s.running ? { ...s, summary, running: false, artifacts } : s,
+            ),
           )
         } else if (ev.event === 'ask') {
           const question = String(data.question ?? '')
@@ -418,10 +429,41 @@ export default function ChatPage() {
                       {isStreamingBot && mi === messages.length - 1 && toolSteps.length > 0 && (
                         <div className="tool-steps">
                           {toolSteps.map((t) => (
-                            <div key={t.key} className={`tool-card ${t.running ? 'running' : 'done'}`}>
-                              <span className="tool-card-icon">{t.running ? '⚙' : '✓'}</span>
-                              <span className="tool-card-name">{t.name}</span>
-                              <span className="tool-card-summary">{t.summary}</span>
+                            <div key={t.key} className="tool-step-block">
+                              <div className={`tool-card ${t.running ? 'running' : 'done'}`}>
+                                <span className="tool-card-icon">{t.running ? '⚙' : '✓'}</span>
+                                <span className="tool-card-name">{t.name}</span>
+                                <span className="tool-card-summary">{t.summary}</span>
+                              </div>
+                              {t.artifacts && t.artifacts.length > 0 && (
+                                <div className="tool-artifacts">
+                                  {t.artifacts.map((a, i) =>
+                                    a.data && a.mime.startsWith('image/') ? (
+                                      <a
+                                        key={i}
+                                        className="artifact-img-wrap"
+                                        href={`data:${a.mime};base64,${a.data}`}
+                                        download={a.name}
+                                        title={`下载 ${a.name}`}
+                                      >
+                                        <img
+                                          className="artifact-img"
+                                          src={`data:${a.mime};base64,${a.data}`}
+                                          alt={a.name}
+                                        />
+                                        <span className="artifact-name">📎 {a.name}</span>
+                                      </a>
+                                    ) : (
+                                      <span key={i} className="artifact-file">
+                                        📄 {a.name}
+                                        {a.data && a.mime === 'text/csv' && a.data.length < 2000
+                                          ? `（${a.data.length} 字符）`
+                                          : ''}
+                                      </span>
+                                    ),
+                                  )}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>

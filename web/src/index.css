@@ -562,6 +562,49 @@ textarea {
   white-space: nowrap;
   max-width: 420px;
 }
+.tool-step-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: 100%;
+}
+.tool-artifacts {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: 28px;
+}
+.artifact-img-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  text-decoration: none;
+  max-width: 300px;
+}
+.artifact-img {
+  max-width: 300px;
+  max-height: 220px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.artifact-name {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.artifact-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+}
 
 /* ---- / 命令菜单 ---- */
 .composer-relative {
