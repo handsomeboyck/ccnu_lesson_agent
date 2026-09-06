@@ -109,6 +109,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 
 	var sb strings.Builder
 	var usage *model.Usage
+	var pendingAsk *skill.Ask // ask_user 触发：等待学生回答
 	errorCode, errorMsg := "", ""
 
 	for ev := range evCh {
@@ -132,6 +133,14 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 				"summary": ev.Summary,
 			})
 			flusher.Flush()
+		case agent.EventAsk:
+			pendingAsk = &skill.Ask{Question: ev.Question, Options: ev.Options}
+			// 问题本身也作为一条可见消息给前端（独立事件）
+			writeSSE(w, "ask", map[string]any{
+				"question": ev.Question,
+				"options":  ev.Options,
+			})
+			flusher.Flush()
 		case agent.EventEnd:
 			usage = ev.Usage
 		case agent.EventError:
@@ -142,13 +151,18 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 6. 持久化助手回复（若已产生内容）
+	// 6. 持久化助手回复：有文本落文本；仅提问则把问题作为助手消息落库，
+	//    便于学生回答后模型在历史中看到“自己问过什么”。
 	assistantID := ""
-	if sb.Len() > 0 {
+	assistantContent := sb.String()
+	if assistantContent == "" && pendingAsk != nil {
+		assistantContent = pendingAsk.Question
+	}
+	if assistantContent != "" {
 		assistantMsg := &store.Message{
 			ConversationID: conv.ID,
 			Role:           "assistant",
-			Content:        sb.String(),
+			Content:        assistantContent,
 			Model:          c.model,
 		}
 		if usage != nil {
@@ -162,9 +176,9 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 7. 收尾事件
-	if errorMsg != "" && sb.Len() == 0 {
+	if errorMsg != "" && sb.Len() == 0 && pendingAsk == nil {
 		writeSSE(w, "error", map[string]string{"code": errorCode, "message": errorMsg})
-	} else if sb.Len() > 0 {
+	} else if sb.Len() > 0 || pendingAsk != nil {
 		writeSSE(w, "done", map[string]any{
 			"message_id":  assistantID,
 			"usage":       usage,

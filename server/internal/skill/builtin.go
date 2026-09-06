@@ -13,6 +13,35 @@ func RegisterDefaults(reg *Registry) {
 	reg.Register(NewQuizGenerator())
 	reg.Register(NewExplainTopic())
 	reg.Register(NewKnowledgeRetrieve())
+	reg.Register(NewAskUser())
+}
+
+// parseCountText 从文本中抽取数量词（“5道/五道/五 道”）。
+func parseCountText(raw string) int {
+	count := 5
+	// 中文数字 1-20
+	cn := map[rune]int{'一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10}
+	for i, r := range []rune(raw) {
+		if n, ok := cn[r]; ok {
+			// 十以内直接取；十X=X；X十=X0 简化取 10
+			if i+1 < len([]rune(raw)) && []rune(raw)[i+1] == '十' {
+				count = 10
+			} else if r == '十' {
+				count = 10
+			} else {
+				count = n
+			}
+			break
+		}
+		if r >= '1' && r <= '9' {
+			count = int(r - '0')
+			break
+		}
+	}
+	if count < 1 || count > 20 {
+		return 5
+	}
+	return count
 }
 
 // extractJSON 从模型输出中截取第一个 JSON 数组/对象（容忍 markdown 代码围栏）。

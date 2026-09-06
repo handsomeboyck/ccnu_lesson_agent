@@ -41,6 +41,21 @@ export interface SSEEvent {
   data: string
 }
 
+// / 命令入口（对应 server /v1/skills 的 commands）
+export interface CommandInfo {
+  skill: string
+  command: string
+  aliases: string[]
+  description: string
+  parameters?: Record<string, unknown>
+}
+
+// ask 事件载荷
+export interface AskPayload {
+  question: string
+  options?: string[]
+}
+
 export const MODE_LABELS: Record<Mode, string> = {
   companion: '学伴',
   practice: '练习测评',

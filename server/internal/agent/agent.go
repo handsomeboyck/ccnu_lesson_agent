@@ -1,5 +1,8 @@
 // Package agent 是 Agent 内核编排层：上下文组装 + LLM 工具调用循环 + Skill 调度。
 // 单 Agent 多模式：模式仅决定系统提示词与可用 Skill 集合。
+// 两条路径：
+//  1. 自然对话：LLM 推理 ↔ 工具调用循环（模型自觉选择 Skill / ask_user）；
+//  2. 斜杠命令：用户以 "/命令 参数" 显式唤起 Skill，直接执行并流式返回。
 package agent
 
 import (
@@ -31,18 +34,21 @@ const (
 	EventDelta      EventKind = "delta"
 	EventToolCall   EventKind = "tool_call"
 	EventToolResult EventKind = "tool_result"
+	EventAsk        EventKind = "ask" // 需要向学生提问（暂停等待回答）
 	EventEnd        EventKind = "end"
 	EventError      EventKind = "error"
 )
 
 // Event 是从 agent 流出的编排事件。
 type Event struct {
-	Kind    EventKind
-	Content string          // delta 文本 / tool 错误信息
-	Tool    *model.ToolCall // tool_call 时携带
-	Summary string          // tool_result 摘要（给前端卡片）
-	Usage   *model.Usage    // 累计用量（EventEnd 时给出）
-	Err     error
+	Kind     EventKind
+	Content  string          // delta 文本 / tool 错误信息
+	Tool     *model.ToolCall // tool_call 时携带
+	Summary  string          // tool_result 摘要（给前端卡片）
+	Question string          // ask 事件的问题
+	Options  []string        // ask 事件的快捷选项
+	Usage    *model.Usage    // 累计用量（EventEnd 时给出）
+	Err      error
 }
 
 // SystemPrompt 依据会话模式返回系统提示词（单 Agent 多模式的核心差异化配置）。
@@ -57,6 +63,9 @@ func SystemPrompt(mode string, skills []string) string {
 	default:
 		sb.WriteString("你是「学伴」教育助手：面向学生答疑。先理解问题，再分步讲解；优先启发思考而非直接给答案；结论需有依据。")
 	}
+	sb.WriteString("\n\n行为准则：")
+	sb.WriteString("\n- 当任务信息不足（如题目数量/难度/范围不明确，或需引导学生思考）时，调用 ask_user 提出一个问题并等待学生回答，不要臆测参数继续。")
+	sb.WriteString("\n- 学生回答了你上轮提问后，继续完成原任务（如接着出题）。")
 	if len(skills) > 0 {
 		sb.WriteString("\n\n你有以下可调用的 Skill（通过 function calling）：\n- " + strings.Join(skills, "\n- "))
 		sb.WriteString("\n当用户请求匹配某个 Skill 的职责时应调用它，拿到结果后组织成自然、友好的回复。")
@@ -64,15 +73,97 @@ func SystemPrompt(mode string, skills []string) string {
 	return sb.String()
 }
 
-// Run 驱动一次对话：LLM 推理 ↔ 工具调用循环，输出流式事件。
+// Run 驱动一次对话。自动识别 "/命令" 强制路径；否则走 LLM 工具循环。
 // history 为该会话已持久化消息（含最新一条 user 消息）。
-// done 事件在整轮完成时发出；调用方消费到 done/error 即结束。
+// 事件消费到 EventEnd / EventAsk / EventError 即一轮结束。
 func Run(ctx context.Context, prov model.Provider, reg *skill.Registry, env *skill.Env,
 	mode, modelName string, history []model.Msg) (<-chan Event, error) {
 
 	if len(history) == 0 {
 		return nil, ErrNoInput
 	}
+	out := make(chan Event, 128)
+	go func() {
+		defer close(out)
+		// 尝试斜杠命令
+		if handled := runCommand(ctx, reg, env, history, out); handled {
+			return
+		}
+		runLLMLoop(ctx, prov, reg, env, mode, modelName, history, out)
+	}()
+	return out, nil
+}
+
+// ---- 路径 1：/命令 强制唤起 ----
+
+func runCommand(ctx context.Context, reg *skill.Registry, env *skill.Env, history []model.Msg, out chan<- Event) bool {
+	last := ""
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == model.RoleUser {
+			last = history[i].Content
+			break
+		}
+	}
+	trimmed := strings.TrimSpace(last)
+	if !strings.HasPrefix(trimmed, "/") {
+		return false
+	}
+	cmdRaw := strings.TrimPrefix(trimmed, "/")
+	sp := strings.IndexAny(cmdRaw, " \t\n")
+	cmdName := cmdRaw
+	rest := ""
+	if sp >= 0 {
+		cmdName = strings.TrimSpace(cmdRaw[:sp])
+		rest = strings.TrimSpace(cmdRaw[sp+1:])
+	}
+	s, ok := reg.LookupCommand(cmdName)
+	if !ok {
+		out <- Event{Kind: EventDelta, Content: fmt.Sprintf("未知命令 `/%s`。\n\n可用命令：\n%s", cmdName, commandHelp(reg))}
+		out <- Event{Kind: EventEnd}
+		return true
+	}
+	// 构建参数：优先命令提供者启发式抽取，否则默认 {}
+	var args json.RawMessage = json.RawMessage(`{}`)
+	if cp, isCmd := s.(skill.CommandProvider); isCmd {
+		b, err := json.Marshal(cp.CommandArgs(rest))
+		if err == nil {
+			args = b
+		}
+	}
+	emitCommandExec(ctx, out, reg, env, s, args)
+	return true
+}
+
+// emitCommandExec 执行命令对应 Skill，事件序列：
+// tool_call → tool_result → (ask | delta* → end)
+func emitCommandExec(ctx context.Context, out chan<- Event, reg *skill.Registry, env *skill.Env, s skill.Skill, args json.RawMessage) {
+	tc := &model.ToolCall{ID: "cli_" + s.Name(), Name: s.Name(), Arguments: args}
+	out <- Event{Kind: EventToolCall, Tool: tc}
+
+	execCtx, cancel := context.WithTimeout(ctx, skillTimeout)
+	defer cancel()
+	res, err := reg.Execute(execCtx, env, s.Name(), args)
+	if err != nil {
+		out <- Event{Kind: EventToolResult, Tool: tc, Summary: "执行失败：" + err.Error()}
+		out <- Event{Kind: EventError, Err: err}
+		return
+	}
+	if res.Ask != nil && res.Ask.Question != "" {
+		out <- Event{Kind: EventToolResult, Tool: tc, Summary: res.Summary}
+		out <- Event{Kind: EventAsk, Question: res.Ask.Question, Options: res.Ask.Options}
+		out <- Event{Kind: EventEnd}
+		return
+	}
+	out <- Event{Kind: EventToolResult, Tool: tc, Summary: res.Summary}
+	streamMarkdown(ctx, out, res.Content)
+	out <- Event{Kind: EventEnd}
+}
+
+// ---- 路径 2：LLM 工具循环 ----
+
+func runLLMLoop(ctx context.Context, prov model.Provider, reg *skill.Registry, env *skill.Env,
+	mode, modelName string, history []model.Msg, out chan<- Event) {
+
 	tools := reg.ToolsForMode(mode)
 	skillNames := make([]string, 0, len(tools))
 	for _, t := range tools {
@@ -83,69 +174,65 @@ func Run(ctx context.Context, prov model.Provider, reg *skill.Registry, env *ski
 	msgs = append(msgs, model.Msg{Role: model.RoleSystem, Content: SystemPrompt(mode, skillNames)})
 	msgs = append(msgs, history...)
 
-	out := make(chan Event, 128)
-	go func() {
-		defer close(out)
-		var total *model.Usage
+	var total *model.Usage
 
-		for round := 1; round <= MaxToolRounds; round++ {
-			evCh, err := prov.ChatStream(ctx, model.ChatRequest{Messages: msgs, Tools: tools, Model: modelName})
-			if err != nil {
-				out <- Event{Kind: EventError, Err: err}
+	for round := 1; round <= MaxToolRounds; round++ {
+		evCh, err := prov.ChatStream(ctx, model.ChatRequest{Messages: msgs, Tools: tools, Model: modelName})
+		if err != nil {
+			out <- Event{Kind: EventError, Err: err}
+			return
+		}
+		var calls []model.ToolCall
+		for ev := range evCh {
+			if ctx.Err() != nil {
 				return
 			}
-
-			var calls []model.ToolCall
-			for ev := range evCh {
-				if ctx.Err() != nil { // 客户端断开/取消
-					return
+			switch ev.Kind {
+			case model.KindDelta:
+				out <- Event{Kind: EventDelta, Content: ev.Content}
+			case model.KindToolCall:
+				if ev.ToolCall != nil {
+					calls = append(calls, *ev.ToolCall)
+					out <- Event{Kind: EventToolCall, Tool: ev.ToolCall}
 				}
-				switch ev.Kind {
-				case model.KindDelta:
-					out <- Event{Kind: EventDelta, Content: ev.Content}
-				case model.KindToolCall:
-					if ev.ToolCall != nil {
-						calls = append(calls, *ev.ToolCall)
-						out <- Event{Kind: EventToolCall, Tool: ev.ToolCall}
-					}
-				case model.KindUsage:
-					total = mergeUsage(total, ev.Usage)
-				case model.KindError:
-					out <- Event{Kind: EventError, Err: ev.Err}
-					return
-				}
+			case model.KindUsage:
+				total = mergeUsage(total, ev.Usage)
+			case model.KindError:
+				out <- Event{Kind: EventError, Err: ev.Err}
+				return
 			}
+		}
+		if len(calls) == 0 {
+			out <- Event{Kind: EventEnd, Usage: total}
+			return
+		}
+		msgs = append(msgs, model.Msg{Role: model.RoleAssistant, Content: "", ToolCalls: calls})
 
-			if len(calls) == 0 {
+		// 逐个执行；若某 Skill 返回 Ask（如 ask_user），暂停等学生回答，结束本轮。
+		for _, tc := range calls {
+			res := execSkill(ctx, reg, env, tc)
+			msgs = append(msgs, model.Msg{Role: model.RoleTool, ToolCallID: tc.ID, Content: res})
+			out <- Event{Kind: EventToolResult, Tool: &tc, Summary: summaryOf(res)}
+			if ctx.Err() != nil {
+				return
+			}
+			if ask := extractAsk(res); ask != nil {
+				out <- Event{Kind: EventAsk, Question: ask.Question, Options: ask.Options}
 				out <- Event{Kind: EventEnd, Usage: total}
 				return
 			}
-
-			// 把 assistant 的工具调用意图回填给模型
-			msgs = append(msgs, model.Msg{Role: model.RoleAssistant, Content: "", ToolCalls: calls})
-
-			// 顺序执行 Skill，结果作为 tool 消息回填
-			for _, tc := range calls {
-				res := execSkill(ctx, reg, env, tc)
-				msgs = append(msgs, model.Msg{Role: model.RoleTool, ToolCallID: tc.ID, Content: res})
-				out <- Event{Kind: EventToolResult, Tool: &tc, Summary: summaryOf(res)}
-				if ctx.Err() != nil {
-					return
-				}
-			}
 		}
-		// 达到轮次上限，通知前端后收尾
-		out <- Event{Kind: EventDelta, Content: "\n\n（已达到工具调用轮次上限，已停止继续调用工具。）"}
-		out <- Event{Kind: EventEnd, Usage: total}
-	}()
-	return out, nil
+	}
+	// 轮次上限兜底
+	out <- Event{Kind: EventDelta, Content: "\n\n（已达到工具调用轮次上限，已停止继续调用工具。）"}
+	out <- Event{Kind: EventEnd, Usage: total}
 }
 
-// execSkill 执行单个工具调用；错误时把错误信息作为 tool 结果回填（模型可见并兜底）。
+// execSkill 执行单个工具调用，返回给模型的 tool 消息内容（JSON 字符串）。
 func execSkill(ctx context.Context, reg *skill.Registry, env *skill.Env, tc model.ToolCall) string {
-	ctx, cancel := context.WithTimeout(ctx, skillTimeout)
+	execCtx, cancel := context.WithTimeout(ctx, skillTimeout)
 	defer cancel()
-	res, err := reg.Execute(ctx, env, tc.Name, tc.Arguments)
+	res, err := reg.Execute(execCtx, env, tc.Name, tc.Arguments)
 	if err != nil {
 		msg := fmt.Sprintf("Skill %q 执行失败：%v", tc.Name, err)
 		b, _ := json.Marshal(map[string]any{"error": msg})
@@ -155,12 +242,18 @@ func execSkill(ctx context.Context, reg *skill.Registry, env *skill.Env, tc mode
 	return string(b)
 }
 
+// extractAsk 从 tool 结果 JSON 中提取 Ask 载荷。
+func extractAsk(res string) *skill.Ask {
+	var r skill.Result
+	if err := json.Unmarshal([]byte(res), &r); err != nil {
+		return nil
+	}
+	return r.Ask
+}
+
 // summaryOf 从 tool 结果 JSON 提取给前端展示的摘要。
 func summaryOf(res string) string {
-	var r struct {
-		Summary string `json:"summary"`
-		Content string `json:"content"`
-	}
+	var r skill.Result
 	if err := json.Unmarshal([]byte(res), &r); err == nil {
 		if r.Summary != "" {
 			return r.Summary
@@ -174,6 +267,33 @@ func summaryOf(res string) string {
 		}
 	}
 	return "Skill 已执行"
+}
+
+// streamMarkdown 把长文本按小块以 delta 输出（不依赖 provider）。
+func streamMarkdown(ctx context.Context, out chan<- Event, text string) {
+	runes := []rune(text)
+	for i := 0; i < len(runes); i += 24 {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		end := i + 24
+		if end > len(runes) {
+			end = len(runes)
+		}
+		out <- Event{Kind: EventDelta, Content: string(runes[i:end])}
+	}
+}
+
+// commandHelp 列出可用命令帮助文本。
+func commandHelp(reg *skill.Registry) string {
+	cmds := reg.Commands()
+	lines := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		lines = append(lines, fmt.Sprintf("- `/%s` — %s", c.Command, c.Description))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func mergeUsage(a, b *model.Usage) *model.Usage {

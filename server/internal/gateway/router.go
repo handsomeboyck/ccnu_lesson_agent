@@ -46,7 +46,7 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	// 对话（SSE，需登录）
 	mux.HandleFunc("POST /v1/chat", authH.requireAuth(chatH.stream))
 
-	// Skill 清单（含说明与可用模式，供前端面板渲染）
+	// Skill 清单 + 命令清单（/ 菜单）
 	mux.HandleFunc("GET /v1/skills", authH.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		all := reg.All()
 		items := make([]map[string]any, 0, len(all))
@@ -57,7 +57,10 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 				"modes":       s.Modes(),
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"skills": items})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"skills":   items,
+			"commands": reg.Commands(),
+		})
 	}))
 
 	handler := http.Handler(mux)

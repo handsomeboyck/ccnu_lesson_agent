@@ -145,7 +145,7 @@ export function listMessages(conversationId: string): Promise<{ messages: Server
   return request(`/v1/conversations/${conversationId}/messages`, { auth: true })
 }
 
-// ---- Skills ----
+// ---- Skills & Commands ----
 
 export interface SkillInfo {
   name: string
@@ -153,6 +153,13 @@ export interface SkillInfo {
   modes: string[]
 }
 
-export function listSkills(): Promise<{ skills: SkillInfo[] }> {
+export interface CommandInfo {
+  skill: string
+  command: string
+  aliases: string[]
+  description: string
+}
+
+export function listSkills(): Promise<{ skills: SkillInfo[]; commands: CommandInfo[] }> {
   return request('/v1/skills', { auth: true })
 }

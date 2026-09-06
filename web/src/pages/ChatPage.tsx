@@ -7,8 +7,8 @@ import {
   listMessages,
   listSkills,
   renameConversation,
+  type CommandInfo,
   type ServerMessage,
-  type SkillInfo,
 } from '../api/client'
 import { streamChat } from '../api/sse'
 import { useAuth } from '../store/auth'
@@ -30,11 +30,10 @@ interface ToolStep {
   running: boolean
 }
 
-// Skill 点击时预填的示例指令
-const SKILL_PRESETS: Record<string, string> = {
-  quiz_generator: '请用练习模式生成 5 道一元二次方程练习题',
-  explain_topic: '请讲解「导数」这个概念，并用苏格拉底式提问引导我',
-  knowledge_retrieve: '请结合课程资料回答：',
+// ask_user 等待回答状态
+interface PendingAsk {
+  question: string
+  options?: string[]
 }
 
 const WELCOME_SUGGESTIONS = [
@@ -47,7 +46,7 @@ function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
-/** 服务端消息 → 展示消息（M0/M1 仅 user/assistant）。 */
+/** 服务端消息 → 展示消息。 */
 function toDisplay(m: ServerMessage): DisplayMsg {
   return { id: m.id, role: m.role === 'user' ? 'user' : 'assistant', content: m.content }
 }
@@ -58,7 +57,7 @@ export default function ChatPage() {
   const clearAuth = useAuth((s) => s.clear)
 
   const [conversations, setConversations] = useState<Conversation[]>([])
-  const [skills, setSkills] = useState<SkillInfo[]>([])
+  const [commands, setCommands] = useState<CommandInfo[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [messages, setMessages] = useState<DisplayMsg[]>([])
   const [toolSteps, setToolSteps] = useState<ToolStep[]>([])
@@ -66,35 +65,37 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  const [pendingAsk, setPendingAsk] = useState<PendingAsk | null>(null)
+  const [slashMenu, setSlashMenu] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const activeConv = conversations.find((c) => c.id === activeId) ?? null
 
-  // ---- 初始化：会话列表 + Skill 清单 ----
+  // ---- 初始化 ----
   useEffect(() => {
     void refreshConversations()
     void listSkills()
-      .then(({ skills: list }) => setSkills(list))
+      .then(({ commands: list }) => setCommands(list))
       .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ---- 会话列表 ----
+  // ---- 会话 ----
   const refreshConversations = useCallback(async () => {
     try {
       const { conversations: list } = await listConversations()
       setConversations(list)
     } catch {
-      // 静默（401 由拦截器处理）
+      // 静默
     }
   }, [])
 
-  // ---- 载入/切换会话 ----
   const openConversation = useCallback(async (id: string) => {
     abortRef.current?.abort()
     setActiveId(id)
     setError('')
     setSending(false)
+    setPendingAsk(null)
     setToolSteps([])
     setMessages([])
     try {
@@ -110,6 +111,7 @@ export default function ChatPage() {
     setActiveId(null)
     setMessages([])
     setToolSteps([])
+    setPendingAsk(null)
     setError('')
     setSending(false)
   }, [])
@@ -120,13 +122,14 @@ export default function ChatPage() {
     if (!content || sending || !accessToken) return
 
     setInput('')
+    setSlashMenu(false)
     setError('')
     setSending(true)
     setToolSteps([])
+    // 学生回答问题（pendingAsk 存在时本轮是它的回答），发送后清除等待态
+    setPendingAsk(null)
 
-    // 无会话时新建用 draftMode；否则沿用会话自身模式
     const sendMode = activeConv ? activeConv.mode : draftMode
-
     const userMsg: DisplayMsg = { id: uid(), role: 'user', content }
     const botMsg: DisplayMsg = { id: uid(), role: 'assistant', content: '', pending: true }
     setMessages((prev) => [...prev, userMsg, botMsg])
@@ -143,8 +146,6 @@ export default function ChatPage() {
         } else if (ev.event === 'delta') {
           const text = String(data.text ?? '')
           if (text) {
-            // 注意：必须写纯 updater（不 mutate prev 内对象）。
-            // StrictMode 开发模式会双调 updater，若直接改 last.content 会导致每段文本追加两次。
             setMessages((prev) => {
               const last = prev[prev.length - 1]
               if (!last || !last.pending) return prev
@@ -152,10 +153,9 @@ export default function ChatPage() {
             })
           }
         } else if (ev.event === 'tool_call') {
-          const name = String(data.name ?? '')
           setToolSteps((prev) => [
             ...prev,
-            { key: uid(), name, summary: '调用中…', running: true },
+            { key: uid(), name: String(data.name ?? ''), summary: '调用中…', running: true },
           ])
         } else if (ev.event === 'tool_result') {
           const name = String(data.name ?? '')
@@ -163,11 +163,27 @@ export default function ChatPage() {
           setToolSteps((prev) =>
             prev.map((s) => (s.name === name && s.running ? { ...s, summary, running: false } : s)),
           )
+        } else if (ev.event === 'ask') {
+          const question = String(data.question ?? '')
+          const options = Array.isArray(data.options)
+            ? (data.options as unknown[]).map(String).filter(Boolean)
+            : undefined
+          if (question) {
+            // 助手气泡展示问题；进入“等待学生回答”状态
+            setMessages((prev) => {
+              const last = prev[prev.length - 1]
+              if (last && last.pending) {
+                return [...prev.slice(0, -1), { ...last, content: question, pending: false }]
+              }
+              return prev
+            })
+            setPendingAsk({ question, options })
+          }
         } else if (ev.event === 'error') {
           setError(String(data.message ?? '生成出错'))
         }
       } catch {
-        // 忽略无法解析的事件
+        // 忽略
       }
     }
 
@@ -185,10 +201,7 @@ export default function ChatPage() {
         setError(err instanceof Error ? err.message : '请求失败')
       }
     } finally {
-      // 本地流式内容已与服务端一致；收尾标记并刷新会话列表
-      setMessages((prev) =>
-        prev.map((m) => (m.pending ? { ...m, pending: false } : m)),
-      )
+      setMessages((prev) => prev.map((m) => (m.pending ? { ...m, pending: false } : m)))
       if (createdId && createdId !== activeId) setActiveId(createdId)
       await refreshConversations()
       setSending(false)
@@ -219,15 +232,43 @@ export default function ChatPage() {
     }
   }
 
-  function pickSkill(s: SkillInfo) {
-    const preset = SKILL_PRESETS[s.name] ?? `请调用 ${s.name}：`
-    setInput(preset)
-    // 聚焦输入框
+  // ---- / 命令菜单 ----
+  const slashQuery = input.startsWith('/') ? input.slice(1) : ''
+  const filteredCommands =
+    slashQuery === ''
+      ? commands
+      : commands.filter(
+          (c) =>
+            c.command.includes(slashQuery.toLowerCase()) ||
+            c.aliases.some((a) => a.toLowerCase().includes(slashQuery.toLowerCase())),
+        )
+
+  function applyCommand(c: CommandInfo) {
+    setInput(`/${c.command} `)
+    setSlashMenu(false)
     document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus()
+  }
+
+  function onInputChange(value: string) {
+    setInput(value)
+    setSlashMenu(value.startsWith('/') && !value.includes(' '))
   }
 
   // ---- 输入 ----
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Escape') {
+      setSlashMenu(false)
+      return
+    }
+    if (slashMenu && filteredCommands.length > 0 && (e.key === 'Tab' || e.key === 'Enter')) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        // 命令未选定不直接发；仍允许原样发送完整指令
+        return
+      }
+      e.preventDefault()
+      applyCommand(filteredCommands[0])
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       void handleSend()
@@ -307,7 +348,6 @@ export default function ChatPage() {
 
       {/* 主区 */}
       <main className="chat-main">
-        {/* 顶部：标题 + 模式 */}
         <header className="chat-toolbar">
           <div className="toolbar-left">
             <span className="toolbar-title">{activeConv ? activeConv.title : '新对话'}</span>
@@ -331,13 +371,13 @@ export default function ChatPage() {
           )}
         </header>
 
-        {/* Skill 面板（新对话时展示，点击预填指令） */}
-        {!activeConv && skills.length > 0 && (
+        {/* Skill 面板（新对话时） */}
+        {!activeConv && commands.length > 0 && (
           <div className="skill-panel">
-            <span className="skill-panel-label">内置 Skill：</span>
-            {skills.map((s) => (
-              <button key={s.name} className="skill-chip" title={s.description} onClick={() => pickSkill(s)}>
-                {s.name}
+            <span className="skill-panel-label">内置 Skill（输入 / 唤起）：</span>
+            {commands.map((c) => (
+              <button key={c.skill} className="skill-chip" title={c.description} onClick={() => applyCommand(c)}>
+                /{c.command}
               </button>
             ))}
           </div>
@@ -349,7 +389,7 @@ export default function ChatPage() {
             <div className="welcome">
               <div className="welcome-logo">🎓</div>
               <h2>教育版智能学伴</h2>
-              <p>多轮对话 · 流式输出 · 内置 Skill · 学伴 / 练习 / 教师三种模式</p>
+              <p>多轮对话 · 流式输出 · 输入 <code>/</code> 主动唤起 Skill</p>
               <div className="suggestions">
                 {WELCOME_SUGGESTIONS.map((s) => (
                   <button key={s} className="suggestion" onClick={() => void handleSend(s)}>
@@ -367,7 +407,6 @@ export default function ChatPage() {
                 <div className="msg-bubble">
                   {m.role === 'assistant' ? (
                     <div className="markdown-body">
-                      {/* 工具调用卡片（仅挂在本轮流式的最后一条 assistant 消息上） */}
                       {isStreamingBot && mi === messages.length - 1 && toolSteps.length > 0 && (
                         <div className="tool-steps">
                           {toolSteps.map((t) => (
@@ -400,23 +439,52 @@ export default function ChatPage() {
 
         {/* 输入区 */}
         <div className="composer-wrap">
-          <div className="composer">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
-              rows={1}
-            />
-            {sending ? (
-              <button className="btn-stop" onClick={stopGenerating} title="停止生成">
-                ■
-              </button>
-            ) : (
-              <button className="btn-send" onClick={() => void handleSend()} disabled={!input.trim()} title="发送">
-                ➤
-              </button>
+          {pendingAsk && !sending && (
+            <div className="ask-banner">
+              <span className="ask-icon">🫵</span>
+              <span>助手在等你回答上面的问题，输入后发送即可继续。</span>
+              {pendingAsk.options && pendingAsk.options.length > 0 && (
+                <span className="ask-options">
+                  {pendingAsk.options.map((o) => (
+                    <button key={o} className="ask-option" onClick={() => void handleSend(o)}>
+                      {o}
+                    </button>
+                  ))}
+                </span>
+              )}
+            </div>
+          )}
+          <div className="composer-relative">
+            {slashMenu && filteredCommands.length > 0 && (
+              <div className="slash-menu">
+                {filteredCommands.map((c) => (
+                  <button key={c.skill} className="slash-item" onClick={() => applyCommand(c)}>
+                    <span className="slash-cmd">/{c.command}</span>
+                    <span className="slash-desc">{c.description}</span>
+                  </button>
+                ))}
+              </div>
             )}
+            <div className="composer">
+              <textarea
+                value={input}
+                onChange={(e) => onInputChange(e.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder={
+                  pendingAsk ? '回答助手的问题…' : '输入消息… 输入 / 唤起 Skill，Enter 发送'
+                }
+                rows={1}
+              />
+              {sending ? (
+                <button className="btn-stop" onClick={stopGenerating} title="停止生成">
+                  ■
+                </button>
+              ) : (
+                <button className="btn-send" onClick={() => void handleSend()} disabled={!input.trim()} title="发送">
+                  ➤
+                </button>
+              )}
+            </div>
           </div>
           <p className="composer-hint">学伴 AI 生成内容仅供参考，学习请以教材与老师讲解为准。</p>
         </div>
