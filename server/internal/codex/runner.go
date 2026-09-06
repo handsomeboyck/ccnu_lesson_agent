@@ -79,6 +79,8 @@ func (r *Runner) Run(ctx context.Context, job *Job) (*ExecResponse, error) {
 		"--user", "1000:1000",
 		"--security-opt", "no-new-privileges",
 		"-e", "PYTHONDONTWRITEBYTECODE=1",
+		"-e", "MPLCONFIGDIR=/tmp", // read-only rootfs：matplotlib 配置放 tmpfs
+		"-e", "HOME=/tmp",
 		"-v", job.InDir + ":/in:ro",
 		"-v", job.OutDir + ":/out:rw",
 		"-w", "/out",
