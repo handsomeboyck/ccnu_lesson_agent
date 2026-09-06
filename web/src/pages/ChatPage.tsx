@@ -143,11 +143,12 @@ export default function ChatPage() {
         } else if (ev.event === 'delta') {
           const text = String(data.text ?? '')
           if (text) {
+            // 注意：必须写纯 updater（不 mutate prev 内对象）。
+            // StrictMode 开发模式会双调 updater，若直接改 last.content 会导致每段文本追加两次。
             setMessages((prev) => {
-              const copy = [...prev]
-              const last = copy[copy.length - 1]
-              if (last && last.pending) last.content += text
-              return copy
+              const last = prev[prev.length - 1]
+              if (!last || !last.pending) return prev
+              return [...prev.slice(0, -1), { ...last, content: last.content + text }]
             })
           }
         } else if (ev.event === 'tool_call') {
