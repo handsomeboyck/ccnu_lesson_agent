@@ -475,3 +475,168 @@ func (s *pgStore) UpdateArtifactStorageKey(ctx context.Context, id, userID, stor
 	}
 	return nil
 }
+
+// ---- metrics（运行监控）----
+
+func (s *pgStore) AppendMetric(ctx context.Context, ev *MetricEvent) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO metric_events (kind, mode, status, skill, prompt_tokens, completion_tokens, duration_ms, ts)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7, $8)`,
+		ev.Kind, ev.Mode, ev.Status, ev.Skill, ev.PromptTokens, ev.CompletionTokens, ev.DurationMs, ev.At)
+	return err
+}
+
+// MetricSummary 把最近 N 小时的事件按小时聚合（不足的桶填零）。
+func (s *pgStore) MetricSummary(ctx context.Context, hours int) (*MetricSummary, error) {
+	if hours <= 0 || hours > 168 {
+		hours = 24
+	}
+	// 逐小时桶：小时起点 -> 聚合行
+	type acc struct{ b HourBucket }
+	accs := map[int64]*acc{}
+	cutoff := time.Now().Add(-time.Duration(hours+1) * time.Hour).Truncate(time.Hour)
+	rows, err := s.pool.Query(ctx, `
+		SELECT date_trunc('hour', ts) AS h,
+		       count(*) FILTER (WHERE kind='chat')::bigint,
+		       count(*) FILTER (WHERE kind='chat' AND status='ok')::bigint,
+		       count(*) FILTER (WHERE kind='chat' AND status='error')::bigint,
+		       coalesce(sum(prompt_tokens) FILTER (WHERE kind='chat'),0)::bigint,
+		       coalesce(sum(completion_tokens) FILTER (WHERE kind='chat'),0)::bigint,
+		       coalesce(sum(duration_ms) FILTER (WHERE kind='chat'),0)::bigint,
+		       count(*) FILTER (WHERE kind='tool')::bigint,
+		       count(*) FILTER (WHERE kind='codex')::bigint,
+		       count(*) FILTER (WHERE kind='codex' AND status='ok')::bigint,
+		       count(*) FILTER (WHERE kind='chat' AND status='ask')::bigint
+		FROM metric_events WHERE ts >= $1 GROUP BY h`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var h time.Time
+		var b HourBucket
+		if err := rows.Scan(&h, &b.Chats, &b.ChatOK, &b.ChatErr, &b.PromptTok,
+			&b.Completion, &b.DurationSum, &b.ToolCalls, &b.CodexRuns, &b.CodexOK, &b.Asks); err != nil {
+			return nil, err
+		}
+		accs[h.Unix()] = &acc{b: b}
+	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+	// 对齐输出（从旧到新，含 0 桶）
+	sum := &MetricSummary{WindowHours: hours}
+	nowH := time.Now().Truncate(time.Hour)
+	for i := hours - 1; i >= 0; i-- {
+		h := nowH.Add(-time.Duration(i) * time.Hour)
+		if a, ok := accs[h.Unix()]; ok {
+			sum.Buckets = append(sum.Buckets, a.b)
+		} else {
+			sum.Buckets = append(sum.Buckets, HourBucket{Hour: h})
+		}
+	}
+	return sum, nil
+}
+
+// MetricDistribution 按模式/技能分组统计最近 N 小时事件数。
+func (s *pgStore) MetricDistribution(ctx context.Context, hours int) (*MetricDistribution, error) {
+	if hours <= 0 || hours > 168 {
+		hours = 24
+	}
+	cut := time.Now().Add(-time.Duration(hours) * time.Hour)
+	out := &MetricDistribution{ByMode: map[string]int64{}, BySkill: map[string]int64{}}
+
+	// 模式分布（chat 事件）
+	rows, err := s.pool.Query(ctx,
+		`SELECT coalesce(nullif(mode,''),'none') AS m, count(*) FROM metric_events
+		 WHERE kind='chat' AND ts >= $1 GROUP BY m`, cut)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var m string
+		var n int64
+		if err := rows.Scan(&m, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out.ByMode[m] = n
+	}
+	rows.Close()
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+
+	// 技能分布（tool + codex 事件，取 skill 列）
+	rows, err = s.pool.Query(ctx,
+		`SELECT coalesce(nullif(skill,''),'none') AS s, count(*) FROM metric_events
+		 WHERE kind IN ('tool','codex') AND ts >= $1 GROUP BY s`, cut)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sk string
+		var n int64
+		if err := rows.Scan(&sk, &n); err != nil {
+			return nil, err
+		}
+		out.BySkill[sk] = n
+	}
+	return out, rows.Err()
+}
+
+// RecentLatencies 取最近 chat 事件的耗时（毫秒），供延迟分位数计算。
+func (s *pgStore) RecentLatencies(ctx context.Context, hours int, limit int) ([]int64, error) {
+	if hours <= 0 || hours > 168 {
+		hours = 24
+	}
+	if limit <= 0 || limit > 5000 {
+		limit = 500
+	}
+	cut := time.Now().Add(-time.Duration(hours) * time.Hour)
+	rows, err := s.pool.Query(ctx,
+		`SELECT duration_ms FROM metric_events WHERE kind='chat' AND ts >= $1
+		 ORDER BY ts DESC LIMIT $2`, cut, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var d int64
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// SystemStats 读取当前库基础状态（pg_stat_database + 库大小）。
+func (s *pgStore) SystemStats(ctx context.Context) (*SystemStats, error) {
+	var st SystemStats
+	err := s.pool.QueryRow(ctx, `
+		SELECT current_database(),
+		       (SELECT version()),
+		       (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()),
+		       (SELECT setting::int FROM pg_settings WHERE name='max_connections'),
+		       coalesce((SELECT pg_database_size(current_database())),0),
+		       (SELECT coalesce(sum(blks_hit)*1.0 / nullif(sum(blks_hit)+sum(blks_read),0), 1) FROM pg_stat_database WHERE datname=current_database()),
+		       (SELECT coalesce(sum(xact_commit),0) FROM pg_stat_database WHERE datname=current_database()),
+		       (SELECT coalesce(sum(xact_rollback),0) FROM pg_stat_database WHERE datname=current_database()),
+		       (SELECT coalesce(extract(epoch FROM now() - pg_postmaster_start_time()),0)::bigint)
+	`).Scan(&st.DBName, &st.PGVersion, &st.Connections, &st.MaxConnections, &st.DBBytes,
+		&st.CacheHitRatio, &st.CommitCount, &st.RollbackCount, &st.UptimeSec)
+	if err != nil {
+		return nil, err
+	}
+	if len(st.PGVersion) > 32 {
+		st.PGVersion = st.PGVersion[:32]
+	}
+	return &st, nil
+}
+
+func (s *pgStore) PingDB(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}

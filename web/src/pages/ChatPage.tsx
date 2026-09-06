@@ -409,6 +409,11 @@ export default function ChatPage() {
           <Link to="/skills" className="side-nav-item">
             🧩 技能管理
           </Link>
+          {user?.role === 'admin' && (
+            <Link to="/monitor" className="side-nav-item">
+              🛰️ 监控中心
+            </Link>
+          )}
         </nav>
         <nav className="conv-list">
           {(() => {

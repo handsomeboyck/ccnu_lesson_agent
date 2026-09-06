@@ -63,6 +63,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/ccnu_codex_jobs:/opt/ccnu_codex_jobs  # 宿主共享作业目录（worker 写、沙箱读）
+      - /:/host:ro                                # 宿主根只读挂载（监控主机资源）
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

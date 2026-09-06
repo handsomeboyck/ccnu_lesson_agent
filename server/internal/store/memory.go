@@ -28,6 +28,7 @@ type memoryStore struct {
 	documents    map[string]*Document     // id -> doc
 	docChunks    map[string][]*Chunk      // docID -> chunks
 	artifacts    map[string]*Artifact     // id -> artifact
+	metrics      []*MetricEvent           // 运行指标（最近 72h 滚动）
 }
 
 // NewMemory 创建内存版 Store（M0 本地演示用，进程退出数据即失）。
@@ -40,6 +41,7 @@ func NewMemory() Store {
 		messages:     map[string][]*Message{},
 		documents:    map[string]*Document{},
 		docChunks:    map[string][]*Chunk{},
+		metrics:      []*MetricEvent{},
 	}
 }
 
@@ -418,4 +420,131 @@ func (s *memoryStore) UpdateArtifactStorageKey(ctx context.Context, id, userID, 
 	}
 	a.StorageKey = storageKey
 	return nil
+}
+
+// ---- metrics（运行监控，内存滚动保留最近 72h）----
+
+func (s *memoryStore) AppendMetric(ctx context.Context, ev *MetricEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clone := *ev
+	s.metrics = append(s.metrics, &clone)
+	// 截断超出 72h 的旧事件，控制内存
+	cut := time.Now().Add(-72 * time.Hour)
+	keep := 0
+	for keep < len(s.metrics) && s.metrics[keep].At.Before(cut) {
+		keep++
+	}
+	if keep > 0 {
+		s.metrics = append([]*MetricEvent(nil), s.metrics[keep:]...)
+	}
+	return nil
+}
+
+func (s *memoryStore) MetricSummary(ctx context.Context, hours int) (*MetricSummary, error) {
+	if hours <= 0 || hours > 168 {
+		hours = 24
+	}
+	s.mu.RLock()
+	evs := append([]*MetricEvent(nil), s.metrics...)
+	s.mu.RUnlock()
+	acc := map[int64]*HourBucket{}
+	nowH := time.Now().Truncate(time.Hour)
+	cut := nowH.Add(-time.Duration(hours) * time.Hour)
+	for _, ev := range evs {
+		if ev.At.Before(cut) {
+			continue
+		}
+		h := ev.At.Truncate(time.Hour)
+		b := acc[h.Unix()]
+		if b == nil {
+			b = &HourBucket{Hour: h}
+			acc[h.Unix()] = b
+		}
+		switch ev.Kind {
+		case "chat":
+			b.Chats++
+			switch ev.Status {
+			case "ok":
+				b.ChatOK++
+			case "error":
+				b.ChatErr++
+			case "ask":
+				b.Asks++
+			}
+			b.PromptTok += ev.PromptTokens
+			b.Completion += ev.CompletionTokens
+			b.DurationSum += ev.DurationMs
+		case "tool":
+			b.ToolCalls++
+		case "codex":
+			b.CodexRuns++
+			if ev.Status == "ok" {
+				b.CodexOK++
+			}
+		}
+	}
+	sum := &MetricSummary{WindowHours: hours}
+	for i := hours - 1; i >= 0; i-- {
+		h := nowH.Add(-time.Duration(i) * time.Hour)
+		if b, ok := acc[h.Unix()]; ok {
+			sum.Buckets = append(sum.Buckets, *b)
+		} else {
+			sum.Buckets = append(sum.Buckets, HourBucket{Hour: h})
+		}
+	}
+	return sum, nil
+}
+
+func (s *memoryStore) MetricDistribution(ctx context.Context, hours int) (*MetricDistribution, error) {
+	if hours <= 0 || hours > 168 {
+		hours = 24
+	}
+	cut := time.Now().Add(-time.Duration(hours) * time.Hour)
+	s.mu.RLock()
+	evs := append([]*MetricEvent(nil), s.metrics...)
+	s.mu.RUnlock()
+	out := &MetricDistribution{ByMode: map[string]int64{}, BySkill: map[string]int64{}}
+	for _, ev := range evs {
+		if ev.At.Before(cut) {
+			continue
+		}
+		switch ev.Kind {
+		case "chat":
+			mode := ev.Mode
+			if mode == "" {
+				mode = "none"
+			}
+			out.ByMode[mode]++
+		case "tool", "codex":
+			sk := ev.Skill
+			if sk == "" {
+				sk = "none"
+			}
+			out.BySkill[sk]++
+		}
+	}
+	return out, nil
+}
+
+func (s *memoryStore) RecentLatencies(ctx context.Context, hours int, limit int) ([]int64, error) {
+	if hours <= 0 || hours > 168 {
+		hours = 24
+	}
+	if limit <= 0 || limit > 5000 {
+		limit = 500
+	}
+	cut := time.Now().Add(-time.Duration(hours) * time.Hour)
+	s.mu.RLock()
+	evs := append([]*MetricEvent(nil), s.metrics...)
+	s.mu.RUnlock()
+	var lat []int64
+	for i := len(evs) - 1; i >= 0 && len(lat) < limit; i-- {
+		ev := evs[i]
+		if ev.Kind != "chat" || ev.At.Before(cut) {
+			continue
+		}
+		lat = append(lat, ev.DurationMs)
+	}
+	return lat, nil
 }

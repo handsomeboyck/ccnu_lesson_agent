@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { login } from '../api/client'
 import { useAuth } from '../store/auth'
+import PasswordField from '../components/PasswordField'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -60,8 +61,7 @@ export default function LoginPage() {
           </label>
           <label>
             密码
-            <input
-              type="password"
+            <PasswordField
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"

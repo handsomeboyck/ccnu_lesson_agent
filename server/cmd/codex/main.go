@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +38,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+	mux.HandleFunc("GET /metrics/sys", handleSysMetrics)
 
 	// 并发限制（默认 2 个并发沙箱，防雪崩）
 	concurrency := getenvInt("CODEX_CONCURRENCY", 2)
@@ -118,6 +121,112 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+// ---- 系统指标（宿主只读 + docker stats）----
+
+// HostSnapshot 宿主概览（经 /host 只读挂载读 /proc；未挂载则各项为空）。
+type HostSnapshot struct {
+	Hostname    string   `json:"hostname"`
+	LoadAvg     [3]float64 `json:"load_avg"`
+	MemTotalKB  int64    `json:"mem_total_kb"`
+	MemAvailKB  int64    `json:"mem_avail_kb"`
+	CPUCores    int      `json:"cpu_cores"`
+}
+
+// ContainerStat 单个容器运行状态（docker stats 采样）。
+type ContainerStat struct {
+	Name    string `json:"name"`
+	CPU     string `json:"cpu"`
+	Mem     string `json:"mem"`
+	MemPerc string `json:"mem_perc"`
+}
+
+type SysMetrics struct {
+	Host       HostSnapshot     `json:"host"`
+	Containers []ContainerStat  `json:"containers"`
+	UpSince    time.Time        `json:"up_since"`
+}
+
+const hostRoot = "/host" // compose 以只读方式把宿主根挂到 worker 容器
+
+func handleSysMetrics(w http.ResponseWriter, r *http.Request) {
+	out := SysMetrics{UpSince: processStart}
+	if hostname, err := os.ReadFile(hostRoot + "/proc/sys/kernel/hostname"); err == nil {
+		out.Host.Hostname = strings.TrimSpace(string(hostname))
+	}
+	// loadavg
+	if b, err := os.ReadFile(hostRoot + "/proc/loadavg"); err == nil {
+		f := strings.Fields(string(b))
+		for i := 0; i < 3 && i < len(f); i++ {
+			v, _ := strconv.ParseFloat(f[i], 64)
+			out.Host.LoadAvg[i] = v
+		}
+	}
+	readMemInfo(&out.Host)
+	out.Host.CPUCores = readCPUCount()
+	collectContainerStats(&out.Containers)
+	writeJSON(w, 200, out)
+}
+
+func readMemInfo(h *HostSnapshot) {
+	data, err := os.ReadFile(hostRoot + "/proc/meminfo")
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 {
+			continue
+		}
+		v, _ := strconv.ParseInt(f[1], 10, 64)
+		switch f[0] {
+		case "MemTotal:":
+			h.MemTotalKB = v
+		case "MemAvailable:":
+			h.MemAvailKB = v
+		}
+	}
+}
+
+func readCPUCount() int {
+	data, err := os.ReadFile(hostRoot + "/proc/cpuinfo")
+	if err != nil {
+		return 0
+	}
+	return strings.Count(string(data), "processor\t:")
+}
+
+// collectContainerStats 用 docker stats --no-stream 采样本 compose 栈内的容器。
+// 输出每行一个容器，字段形如 {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}。
+func collectContainerStats(out *[]ContainerStat) {
+	// 通过容器名后缀匹配（compose 项目名动态，取本 worker 自身前缀）
+	self, _ := os.Hostname()
+	prefix := self
+	if i := strings.Index(self, "-codex-"); i > 0 {
+		prefix = self[:i]
+	}
+	args := []string{"stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"}
+	cmd := exec.CommandContext(context.Background(), "docker", args...)
+	b, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if line == "" {
+			continue
+		}
+		f := strings.Split(line, "\t")
+		if len(f) != 4 {
+			continue
+		}
+		cs := ContainerStat{Name: f[0], CPU: f[1], Mem: f[2], MemPerc: f[3]}
+		if prefix == "" || strings.HasPrefix(cs.Name, prefix) {
+			*out = append(*out, cs)
+		}
+	}
+}
+
+var processStart = time.Now()
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})

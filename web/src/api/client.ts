@@ -270,6 +270,75 @@ export function deleteArtifact(id: string): Promise<void> {
   return request(`/v1/artifacts/${id}`, { method: 'DELETE', auth: true })
 }
 
+// ---- 监控（仅 admin） ----
+
+export interface MonitorBucket {
+  hour: string
+  chats: number
+  chat_ok: number
+  chat_err: number
+  prompt_tok: number
+  completion: number
+  duration_sum: number
+  tool_calls: number
+  codex_runs: number
+  codex_ok: number
+  asks: number
+}
+
+export interface MonitorOverview {
+  generated_at: string
+  uptime_sec: number
+  window_hours: number
+  agent: {
+    chats: number
+    chat_ok: number
+    chat_err: number
+    asks: number
+    tools: number
+    codex_runs: number
+    codex_ok: number
+    prompt_tokens: number
+    completion_tokens: number
+    duration_sum_ms: number
+    avg_latency_ms: number
+    p50_ms: number
+    p95_ms: number
+    by_mode: Record<string, number>
+    by_skill: Record<string, number>
+    buckets: MonitorBucket[]
+  }
+  db?: {
+    available: boolean
+    pg_version?: string
+    db_name?: string
+    connections?: number
+    max_conn?: number
+    db_bytes?: number
+    cache_hit?: number
+    commit?: number
+    rollback?: number
+    uptime_sec?: number
+    error?: string
+  }
+  system?: {
+    available: boolean
+    error?: string
+    host?: {
+      hostname: string
+      load_avg: number[]
+      mem_total_kb: number
+      mem_avail_kb: number
+      cpu_cores: number
+    }
+    containers?: { name: string; cpu: string; mem: string; mem_perc: string }[]
+  }
+}
+
+export function fetchMonitorOverview(): Promise<MonitorOverview> {
+  return request('/v1/monitor/overview', { auth: true })
+}
+
 /** 统一下载入口：优先从服务器按 id 取 blob（可靠下载）；无 id 时回退 data URL。 */
 export async function downloadArtifact(a: { id?: string; name: string; mime: string; data?: string }): Promise<void> {
   let blob: Blob | null = null

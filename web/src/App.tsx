@@ -8,6 +8,7 @@ import RegisterPage from './pages/RegisterPage'
 import SkillsPage from './pages/SkillsPage'
 import LibraryPage from './pages/LibraryPage'
 import ArtifactsPage from './pages/ArtifactsPage'
+import MonitorPage from './pages/MonitorPage'
 
 /** 已登录但用户信息缺失时先拉取 /me 恢复会话。 */
 function AuthBootstrap({ children }: { children: ReactNode }) {
@@ -42,6 +43,13 @@ function AuthBootstrap({ children }: { children: ReactNode }) {
 function RequireAuth({ children }: { children: ReactNode }) {
   const user = useAuth((s) => s.user)
   if (!user) return <Navigate to="/login" replace />
+  return children
+}
+
+function RequireRole({ role, children }: { role: string; children: ReactNode }) {
+  const user = useAuth((s) => s.user)
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== role) return <Navigate to="/" replace />
   return children
 }
 
@@ -101,6 +109,14 @@ export default function App() {
             <RequireAuth>
               <ArtifactsPage />
             </RequireAuth>
+          }
+        />
+        <Route
+          path="/monitor"
+          element={
+            <RequireRole role="admin">
+              <MonitorPage />
+            </RequireRole>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

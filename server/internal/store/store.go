@@ -98,6 +98,64 @@ type Artifact struct {
 	CreatedAt      time.Time
 }
 
+// MetricEvent 是一条运行指标（对话/工具/沙箱）。
+type MetricEvent struct {
+	ID               int64
+	Kind             string // chat | tool | codex
+	Mode             string // companion/practice/teacher
+	Status           string // ok | error | ask | ...
+	Skill            string // kind=tool/codex 时使用
+	PromptTokens     int64
+	CompletionTokens int64
+	DurationMs       int64
+	At               time.Time
+}
+
+// HourBucket 是按小时聚合的一桶指标。
+type HourBucket struct {
+	Hour        time.Time
+	Chats       int64
+	ChatOK      int64
+	ChatErr     int64
+	PromptTok   int64
+	Completion  int64
+	DurationSum int64
+	ToolCalls   int64
+	CodexRuns   int64
+	CodexOK     int64
+	Asks        int64
+}
+
+// MetricSummary 返回最近 windowHours 小时的逐小时聚合。
+type MetricSummary struct {
+	WindowHours int
+	Buckets     []HourBucket
+}
+
+// MetricDistribution 统计最近 windowHours 内按模式/技能分组的计数。
+type MetricDistribution struct {
+	ByMode  map[string]int64 `json:"by_mode"`
+	BySkill map[string]int64 `json:"by_skill"`
+}
+
+// 可选能力：数据库/宿主系统状态（仅 Postgres store 实现）。
+type SystemStats struct {
+	PGVersion     string  `json:"pg_version"`
+	DBName        string  `json:"db_name"`
+	Connections   int     `json:"connections"`
+	MaxConnections int    `json:"max_connections"`
+	DBBytes       int64   `json:"db_bytes"`
+	CacheHitRatio float64 `json:"cache_hit_ratio"`
+	CommitCount   int64   `json:"xact_commit"`
+	RollbackCount int64   `json:"xact_rollback"`
+	UptimeSec     int64   `json:"uptime_sec"`
+}
+
+type SystemStatsProvider interface {
+	SystemStats(ctx context.Context) (*SystemStats, error)
+	PingDB(ctx context.Context) error
+}
+
 // Store 是统一的数据访问接口。
 type Store interface {
 	// users
@@ -139,4 +197,10 @@ type Store interface {
 	ListArtifacts(ctx context.Context, userID string, limit int) ([]*Artifact, error)
 	UpdateArtifactStorageKey(ctx context.Context, id, userID, storageKey string) error
 	DeleteArtifact(ctx context.Context, id, userID string) error
+
+	// metrics（运行监控）
+	AppendMetric(ctx context.Context, ev *MetricEvent) error
+	MetricSummary(ctx context.Context, hours int) (*MetricSummary, error)
+	MetricDistribution(ctx context.Context, hours int) (*MetricDistribution, error)
+	RecentLatencies(ctx context.Context, hours int, limit int) ([]int64, error)
 }

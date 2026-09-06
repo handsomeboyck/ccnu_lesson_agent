@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
@@ -113,6 +114,7 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 	}
 
 	resp, err := env.Codex.Exec(ctx, req)
+	recordCodexRun(ctx, env, err, resp)
 	if err != nil {
 		// 沙箱不稳定：不打断对话，降级为明确提示（模型可改用其它能力）。
 		return &Result{
@@ -180,6 +182,20 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 		Artifacts: views,
 		Done:      false, // 交给模型基于 stdout 组织答复
 	}, nil
+}
+
+// recordCodexRun 记录一次沙箱执行指标（监控用；失败静默）。
+func recordCodexRun(ctx context.Context, env *Env, err error, resp *codex.ExecResponse) {
+	if env == nil || env.Store == nil {
+		return
+	}
+	ev := &store.MetricEvent{Kind: "codex", Status: "ok", Skill: "execute_code", At: time.Now()}
+	if err != nil || resp == nil {
+		ev.Status = "error"
+	} else if resp.Error != "" || resp.ExitCode != 0 || resp.TimedOut {
+		ev.Status = "error"
+	}
+	_ = env.Store.AppendMetric(ctx, ev)
 }
 
 // persistArtifact 把沙箱产物写入 ArtifactDir + artifacts 表，返回新 id（失败返回空）。

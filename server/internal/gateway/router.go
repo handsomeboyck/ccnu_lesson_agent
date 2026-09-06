@@ -25,6 +25,7 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	skillH := &skillService{loader: loader, registry: reg}
 	chatH := &chatService{store: st, conv: convH, provider: prov, registry: reg,
 		codex: codexCli, uploadDir: cfg.UploadDir, artifactDir: cfg.ArtifactDir, model: modelName}
+	monH := &monitorService{store: st, codex: codexCli, started: time.Now()}
 
 	mux := http.NewServeMux()
 
@@ -66,6 +67,10 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	mux.HandleFunc("GET /v1/skills/{name}", authH.requireAuth(skillH.docDetail))
 	mux.HandleFunc("PUT /v1/skills/{name}", authH.requireRole(skillH.save, store.RoleTeacher, store.RoleAdmin))
 	mux.HandleFunc("DELETE /v1/skills/{name}", authH.requireRole(skillH.remove, store.RoleTeacher, store.RoleAdmin))
+
+	// 监控（仅 admin）
+	mux.HandleFunc("GET /v1/monitor/overview", authH.requireRole(monH.overview, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/health", authH.requireRole(monH.serviceHealth, store.RoleAdmin))
 
 	handler := http.Handler(mux)
 	handler = corsMiddleware(cfg.CORSOrigins, handler)

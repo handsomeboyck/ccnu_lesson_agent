@@ -119,6 +119,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	var usage *model.Usage
 	var pendingAsk *skill.Ask             // ask_user 触发：等待学生回答
 	var msgArtifacts []skill.ArtifactView // 本轮产生的持久化产物（写入 assistant 消息供历史回看）
+	toolCalls := map[string]int{}
 	errorCode, errorMsg := "", ""
 
 	for ev := range evCh {
@@ -135,6 +136,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 					"arguments": ev.Tool.Arguments,
 				})
 				flusher.Flush()
+				toolCalls[ev.Tool.Name]++
 			}
 		case agent.EventToolResult:
 			payload := map[string]any{
@@ -169,6 +171,9 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+
+	// 记录 Agent 指标（异步写库，失败不影响响应）
+	go recordChatMetrics(r.Context(), c.store, conv.Mode, errorMsg, pendingAsk, usage, toolCalls, time.Since(start))
 
 	// 6. 持久化助手回复：有文本落文本；仅提问则把问题作为助手消息落库，
 	//    便于学生回答后模型在历史中看到“自己问过什么”。

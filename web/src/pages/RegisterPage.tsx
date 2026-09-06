@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { login, register } from '../api/client'
 import { useAuth } from '../store/auth'
+import PasswordField from '../components/PasswordField'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -80,8 +81,7 @@ export default function RegisterPage() {
           </label>
           <label>
             密码
-            <input
-              type="password"
+            <PasswordField
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
@@ -92,8 +92,7 @@ export default function RegisterPage() {
           </label>
           <label>
             确认密码
-            <input
-              type="password"
+            <PasswordField
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               autoComplete="new-password"
