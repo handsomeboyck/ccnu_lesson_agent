@@ -40,8 +40,9 @@ type ToolCall struct {
 	Arguments json.RawMessage `json:"arguments"` // JSON 对象
 }
 
-// ToolWire 输出 OpenAI 兼容 wire 格式（assistant message 的 tool_calls 项）。
-func (t ToolCall) ToolWire() json.RawMessage {
+// MarshalJSON 输出 OpenAI 兼容 wire 格式
+// （assistant message 的 tool_calls 项：arguments 必须是 JSON 字符串）。
+func (t ToolCall) MarshalJSON() ([]byte, error) {
 	w := struct {
 		ID   string `json:"id"`
 		Type string `json:"type"`
@@ -52,8 +53,36 @@ func (t ToolCall) ToolWire() json.RawMessage {
 	}{ID: t.ID, Type: "function"}
 	w.Fn.Name = t.Name
 	w.Fn.Arguments = string(t.Arguments)
-	b, _ := json.Marshal(w)
-	return b
+	return json.Marshal(w)
+}
+
+// UnmarshalJSON 兼容两种输入：wire 形式与内部简写形式。
+func (t *ToolCall) UnmarshalJSON(b []byte) error {
+	var wire struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+		Fn   *struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(b, &wire); err != nil {
+		return err
+	}
+	t.ID = wire.ID
+	t.Name = wire.Name
+	t.Arguments = wire.Arguments
+	if wire.Fn != nil {
+		if wire.Name == "" {
+			t.Name = wire.Fn.Name
+		}
+		if len(wire.Arguments) == 0 {
+			t.Arguments = json.RawMessage(wire.Fn.Arguments)
+		}
+	}
+	return nil
 }
 
 // Tool 描述可用函数工具。
