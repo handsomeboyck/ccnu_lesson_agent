@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -34,6 +35,42 @@ type docView struct {
 
 func toDocView(d *store.Document) docView {
 	return docView{ID: d.ID, Filename: d.Filename, Ext: d.Ext, SizeBytes: d.SizeBytes, Status: d.Status, Error: d.Error, CreatedAt: d.CreatedAt}
+}
+
+// storeParsedDocument 同步完成：建记录 → 解析 → 写分块 → 存原件 → ready。
+// 供资料库上传（异步外再调）与对话附件（需同步拿到 doc id）复用。
+// 返回 (doc, nil)；类型不支持返回 ingest.ErrUnsupported。
+func storeParsedDocument(ctx context.Context, st store.Store, uploadDir, userID, filename string, data []byte) (*store.Document, error) {
+	ext := ingest.ExtOf(filename)
+	if !supportedExt(ext) {
+		return nil, fmt.Errorf("不支持的文件类型 .%s（支持 pdf/docx/xlsx/txt/md/csv）: %w", ext, ingest.ErrUnsupported)
+	}
+	doc := &store.Document{UserID: userID, Filename: filename, Ext: ext, SizeBytes: int64(len(data)), Status: "parsing"}
+	if err := st.CreateDocument(ctx, doc); err != nil {
+		return nil, err
+	}
+	text, err := ingest.ParseBytes(filename, data)
+	if err != nil {
+		_ = st.UpdateDocumentStatus(ctx, doc.ID, userID, "failed", err.Error())
+		return doc, err
+	}
+	chunks := ingest.ChunkText(text)
+	cs := make([]store.Chunk, 0, len(chunks))
+	for i, c := range chunks {
+		cs = append(cs, store.Chunk{DocumentID: doc.ID, Seq: i, Content: c})
+	}
+	if err := st.ReplaceChunks(ctx, doc.ID, cs); err != nil {
+		_ = st.UpdateDocumentStatus(ctx, doc.ID, userID, "failed", err.Error())
+		return doc, err
+	}
+	if uploadDir != "" {
+		p := filepath.Join(uploadDir, doc.ID+"_"+sanitize(doc.Filename))
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			log.Printf("library: save original %s: %v", doc.Filename, err)
+		}
+	}
+	_ = st.UpdateDocumentStatus(ctx, doc.ID, userID, "ready", "")
+	return doc, nil
 }
 
 // upload POST /v1/library/files（multipart，字段名 file；支持多文件同名重复上传多次）

@@ -10,6 +10,7 @@ import {
   listSkills,
   logout,
   renameConversation,
+  uploadChatAttachments,
   type CommandInfo,
   type ServerMessage,
   type ServerMessageArtifact,
@@ -136,11 +137,15 @@ export default function ChatPage() {
   const [draftMode, setDraftMode] = useState<Mode>('companion')
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [dragActive, setDragActive] = useState(false)
   const [error, setError] = useState('')
   const [pendingAsk, setPendingAsk] = useState<PendingAsk | null>(null)
   const [slashMenu, setSlashMenu] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const activeConv = conversations.find((c) => c.id === activeId) ?? null
 
   // ---- 初始化 ----
@@ -186,25 +191,99 @@ export default function ChatPage() {
     setPendingAsk(null)
     setError('')
     setSending(false)
+    setPendingFiles([])
   }, [])
+
+  // ---- 附件选择 ----
+  function addFiles(list: FileList | File[]) {
+    const files = Array.from(list)
+    const ok: File[] = []
+    for (const f of files) {
+      if (pendingFiles.length + ok.length >= 5) {
+        setError('一次最多附加 5 个文件')
+        break
+      }
+      if (pendingFiles.some((p) => p.name === f.name && p.size === f.size)) continue
+      ok.push(f)
+    }
+    if (ok.length > 0) setPendingFiles((prev) => [...prev, ...ok])
+  }
+  function removeFile(name: string, size: number) {
+    setPendingFiles((prev) => prev.filter((f) => !(f.name === name && f.size === size)))
+  }
+
+  function fmtFileSize(n: number): string {
+    if (n < 1024) return `${n} B`
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+    return `${(n / 1024 / 1024).toFixed(1)} MB`
+  }
+  function mimeOf(name: string): string {
+    const ext = name.split('.').pop()?.toLowerCase() ?? ''
+    switch (ext) {
+      case 'pdf':
+        return 'application/pdf'
+      case 'docx':
+      case 'doc':
+        return 'application/msword'
+      case 'xlsx':
+      case 'xls':
+        return 'application/vnd.ms-excel'
+      case 'csv':
+        return 'text/csv'
+      default:
+        return 'text/plain'
+    }
+  }
 
   // ---- 发送 ----
   async function handleSend(rawContent?: string) {
     const content = (rawContent ?? input).trim()
-    if (!content || sending || !accessToken) return
+    if (sending || !accessToken) return
+    if (!content && pendingFiles.length === 0) return
+
+    // 上传消息级附件（多文件 → 解析入库 → doc_id）
+    let attachIds: string[] = []
+    const failed: string[] = []
+    if (pendingFiles.length > 0) {
+      setUploading(true)
+      try {
+        const results = await uploadChatAttachments(pendingFiles)
+        for (const r of results) {
+          if (r.status === 'ready' && r.doc_id) attachIds.push(r.doc_id)
+          else if (r.error) failed.push(`${r.filename}：${r.error}`)
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '附件上传失败')
+        setUploading(false)
+        return
+      } finally {
+        setUploading(false)
+      }
+    }
 
     setInput('')
     setSlashMenu(false)
     setError('')
     setSending(true)
     setToolSteps([])
-    // 学生回答问题（pendingAsk 存在时本轮是它的回答），发送后清除等待态
     setPendingAsk(null)
 
     const sendMode = activeConv ? activeConv.mode : draftMode
-    const userMsg: DisplayMsg = { id: uid(), role: 'user', content }
+    // 展示用内容：原文 + 附件标记（与本地 file chips 对应）
+    let display = content
+    if (attachIds.length > 0) {
+      const names = pendingFiles.filter((_, i) => failed.length === 0 || !failed.some((f) => f.startsWith(pendingFiles[i].name))).map((f) => f.name)
+      display = content ? `${content}` : content
+      if (names.length > 0) {
+        display = (display ? display + '\n\n' : '') + names.map((n) => `📎 ${n}`).join('\n')
+      }
+    }
+    const userMsg: DisplayMsg = { id: uid(), role: 'user', content: display }
     const botMsg: DisplayMsg = { id: uid(), role: 'assistant', content: '', pending: true }
     setMessages((prev) => [...prev, userMsg, botMsg])
+    setPendingFiles([])
+    setDragActive(false)
+    if (failed.length > 0) setError(`部分附件失败：${failed.join('；')}`)
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -291,6 +370,7 @@ export default function ChatPage() {
         conversationId: activeId ?? undefined,
         content,
         mode: sendMode,
+        attachments: attachIds.length > 0 ? attachIds : undefined,
         token: accessToken,
         signal: controller.signal,
         onEvent: handleEvent,
@@ -515,8 +595,27 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* 消息区 */}
-        <div className="messages">
+        {/* 消息区（支持拖拽附件） */}
+        <div
+          className={`messages ${dragActive ? 'drop-active' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault()
+            if (!dragActive) setDragActive(true)
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragActive(false)
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragActive(false)
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files)
+          }}
+        >
+          {dragActive && (
+            <div className="drop-overlay">
+              <div className="drop-overlay-inner">📎 松开以附加文件（pdf / docx / xlsx / txt / md / csv，≤5 个）</div>
+            </div>
+          )}
           {messages.length === 0 && !sending && (
             <div className="welcome">
               <div className="welcome-hero">
@@ -672,25 +771,68 @@ export default function ChatPage() {
               </div>
             )}
             <div className="composer">
+              <div className="composer-btns">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  accept=".pdf,.docx,.doc,.xlsx,.xls,.txt,.md,.csv"
+                  onChange={(e) => {
+                    if (e.target.files) addFiles(e.target.files)
+                    e.target.value = ''
+                  }}
+                />
+                <button
+                  className="btn-attach"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="附加文件（pdf/docx/xlsx/txt/md/csv，可多选）"
+                  disabled={sending || uploading}
+                >
+                  📎
+                </button>
+              </div>
               <textarea
                 value={input}
                 onChange={(e) => onInputChange(e.target.value)}
                 onKeyDown={onKeyDown}
                 placeholder={
-                  pendingAsk ? '回答助手的问题…' : '输入消息… 输入 / 唤起 Skill，Enter 发送'
+                  pendingAsk ? '回答助手的问题…' : '输入消息… 输入 / 唤起 Skill，Enter 发送（可 📎 附加文件）'
                 }
                 rows={1}
               />
-              {sending ? (
+              {sending || uploading ? (
                 <button className="btn-stop" onClick={stopGenerating} title="停止生成">
                   ■
                 </button>
               ) : (
-                <button className="btn-send" onClick={() => void handleSend()} disabled={!input.trim()} title="发送">
+                <button
+                  className="btn-send"
+                  onClick={() => void handleSend()}
+                  disabled={!input.trim() && pendingFiles.length === 0}
+                  title="发送"
+                >
                   ➤
                 </button>
               )}
             </div>
+            {(pendingFiles.length > 0 || uploading) && (
+              <div className="attach-chips">
+                {pendingFiles.map((f) => (
+                  <span key={`${f.name}-${f.size}`} className="attach-chip">
+                    <FileIcon name={f.name} mime={mimeOf(f.name)} size={16} />
+                    <span className="attach-chip-name">{f.name}</span>
+                    <span className="attach-chip-size">{fmtFileSize(f.size)}</span>
+                    {!sending && !uploading && (
+                      <button className="attach-chip-x" onClick={() => removeFile(f.name, f.size)}>
+                        ✕
+                      </button>
+                    )}
+                  </span>
+                ))}
+                {uploading && <span className="attach-uploading">⏳ 解析上传中…</span>}
+              </div>
+            )}
           </div>
           <p className="composer-hint">学伴 AI 生成内容仅供参考，学习请以教材与老师讲解为准。</p>
         </div>

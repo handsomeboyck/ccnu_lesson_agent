@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -25,13 +26,15 @@ type chatService struct {
 	uploadDir   string
 	artifactDir string
 	model       string
+	attach      *chatAttachmentService
 }
 
 type chatRequest struct {
-	ConversationID string `json:"conversation_id"` // 空 = 新建会话
-	Content        string `json:"content"`
-	Mode           string `json:"mode"`
-	CourseID       string `json:"course_id"`
+	ConversationID string   `json:"conversation_id"` // 空 = 新建会话
+	Content        string   `json:"content"`
+	Mode           string   `json:"mode"`
+	CourseID       string   `json:"course_id"`
+	Attachments    []string `json:"attachments"` // 本次消息附带的资料库文档 id
 }
 
 // stream 事件协议见 Agent.md：
@@ -57,8 +60,24 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. 持久化用户消息
-	userMsg := &store.Message{ConversationID: conv.ID, Role: "user", Content: content}
+	// 2. 附件：校验归属并关联会话（多轮记忆）。
+	var newDocs, linkedDocs []*store.Document
+	if c.attach != nil {
+		newDocs, linkedDocs, err = c.attach.linkAttachments(r.Context(), conv.ID, claims.UserID, in.Attachments)
+		if err != nil {
+			log.Printf("chat: link attachments failed: %v", err)
+		}
+	}
+	original := content // 展示/存储用原文
+	inject := ""        // 发送给模型的注入段（附件全文或检索片段）
+
+	// 2.5 组装注入内容：本条带附件 → 附件正文全量注入；否则若会话有关联附件 → 自动检索注入。
+	if len(newDocs) > 0 || len(linkedDocs) > 0 {
+		inject = buildAttachmentContext(r.Context(), c.store, newDocs, linkedDocs, original)
+	}
+
+	// 2. 持久化用户消息（只存原文，避免注入文本污染历史界面；模型每轮都会再注入）
+	userMsg := &store.Message{ConversationID: conv.ID, Role: "user", Content: original}
 	if err := c.store.CreateMessage(r.Context(), userMsg); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -76,6 +95,10 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		if m.Role == "user" || m.Role == "assistant" {
 			history = append(history, model.Msg{Role: m.Role, Content: m.Content})
 		}
+	}
+	// 把本轮附件注入文本合入发送给模型的最后一条用户消息（存储保持原文，仅模型可见富文本）
+	if inject != "" && len(history) > 0 && history[len(history)-1].Role == model.RoleUser {
+		history[len(history)-1].Content = inject + "\n\n" + history[len(history)-1].Content
 	}
 
 	// 4. SSE 头

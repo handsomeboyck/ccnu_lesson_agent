@@ -27,6 +27,7 @@ type memoryStore struct {
 	messages     map[string][]*Message    // conversationID -> messages (有序)
 	documents    map[string]*Document     // id -> doc
 	docChunks    map[string][]*Chunk      // docID -> chunks
+	convAttach   map[string][]string      // convID -> docIDs（added 顺序）
 	artifacts    map[string]*Artifact     // id -> artifact
 	metrics      []*MetricEvent           // 运行指标（最近 72h 滚动）
 }
@@ -41,6 +42,8 @@ func NewMemory() Store {
 		messages:     map[string][]*Message{},
 		documents:    map[string]*Document{},
 		docChunks:    map[string][]*Chunk{},
+		convAttach:   map[string][]string{},
+		artifacts:    map[string]*Artifact{},
 		metrics:      []*MetricEvent{},
 	}
 }
@@ -189,6 +192,7 @@ func (s *memoryStore) DeleteConversation(ctx context.Context, id, userID string)
 	}
 	delete(s.conversation, id)
 	delete(s.messages, id)
+	delete(s.convAttach, id)
 	return nil
 }
 
@@ -367,9 +371,16 @@ func (s *memoryStore) SearchChunks(ctx context.Context, userID, query string, to
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.searchChunksLocked(userID, "", keywords, topK), nil
+}
+
+func (s *memoryStore) searchChunksLocked(userID, docID string, keywords []string, topK int) []ChunkHit {
 	var hits []ChunkHit
 	for _, d := range s.documents {
 		if d.UserID != userID {
+			continue
+		}
+		if docID != "" && d.ID != docID {
 			continue
 		}
 		for _, c := range s.docChunks[d.ID] {
@@ -389,7 +400,67 @@ func (s *memoryStore) SearchChunks(ctx context.Context, userID, query string, to
 	if len(hits) > topK {
 		hits = hits[:topK]
 	}
-	return hits, nil
+	return hits
+}
+
+func (s *memoryStore) GetDocumentsByIDs(ctx context.Context, userID string, ids []string) ([]*Document, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	set := map[string]bool{}
+	for _, id := range ids {
+		set[id] = true
+	}
+	var out []*Document
+	for _, d := range s.documents {
+		if d.UserID == userID && set[d.ID] {
+			clone := *d
+			out = append(out, &clone)
+		}
+	}
+	return out, nil
+}
+
+func (s *memoryStore) GetDocumentChunks(ctx context.Context, docID string) ([]Chunk, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cs := s.docChunks[docID]
+	out := make([]Chunk, 0, len(cs))
+	for _, c := range cs {
+		if c != nil {
+			out = append(out, *c)
+		}
+	}
+	return out, nil
+}
+
+func (s *memoryStore) ListConversationAttachments(ctx context.Context, convID string) ([]*Document, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ids := s.convAttach[convID]
+	var out []*Document
+	for _, id := range ids {
+		if d := s.documents[id]; d != nil {
+			clone := *d
+			out = append(out, &clone)
+		}
+	}
+	return out, nil
+}
+
+func (s *memoryStore) LinkConversationDocuments(ctx context.Context, convID string, docIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing := map[string]bool{}
+	for _, id := range s.convAttach[convID] {
+		existing[id] = true
+	}
+	for _, id := range docIDs {
+		if !existing[id] {
+			s.convAttach[convID] = append(s.convAttach[convID], id)
+			existing[id] = true
+		}
+	}
+	return nil
 }
 
 // ---- artifacts ----

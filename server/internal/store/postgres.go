@@ -355,6 +355,98 @@ func (s *pgStore) DeleteDocument(ctx context.Context, id, userID string) error {
 	return nil
 }
 
+func (s *pgStore) GetDocumentsByIDs(ctx context.Context, userID string, ids []string) ([]*Document, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, userID)
+	ph := make([]string, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+		ph = append(ph, fmt.Sprintf("$%d", len(args)))
+	}
+	rows, err := s.pool.Query(ctx,
+		fmt.Sprintf(`SELECT id, user_id, filename, ext, size_bytes, status, error, created_at
+		 FROM documents WHERE user_id=$1 AND id IN (%s)`, strings.Join(ph, ",")), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Document
+	for rows.Next() {
+		var d Document
+		if err := rows.Scan(&d.ID, &d.UserID, &d.Filename, &d.Ext, &d.SizeBytes, &d.Status, &d.Error, &d.CreatedAt); err != nil {
+			return nil, err
+		}
+		dd := d
+		out = append(out, &dd)
+	}
+	return out, rows.Err()
+}
+
+func (s *pgStore) GetDocumentChunks(ctx context.Context, docID string) ([]Chunk, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, document_id, seq, content FROM document_chunks
+		 WHERE document_id=$1 ORDER BY seq`, docID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Chunk
+	for rows.Next() {
+		var c Chunk
+		if err := rows.Scan(&c.ID, &c.DocumentID, &c.Seq, &c.Content); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ---- conversation attachments（多轮附件记忆）----
+
+func (s *pgStore) ListConversationAttachments(ctx context.Context, convID string) ([]*Document, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT d.id, d.user_id, d.filename, d.ext, d.size_bytes, d.status, d.error, d.created_at
+		 FROM conversation_attachments ca
+		 JOIN documents d ON d.id = ca.doc_id
+		 WHERE ca.conv_id=$1 ORDER BY ca.added_at`, convID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Document
+	for rows.Next() {
+		var d Document
+		if err := rows.Scan(&d.ID, &d.UserID, &d.Filename, &d.Ext, &d.SizeBytes, &d.Status, &d.Error, &d.CreatedAt); err != nil {
+			return nil, err
+		}
+		dd := d
+		out = append(out, &dd)
+	}
+	return out, rows.Err()
+}
+
+func (s *pgStore) LinkConversationDocuments(ctx context.Context, convID string, docIDs []string) error {
+	if len(docIDs) == 0 {
+		return nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, id := range docIDs {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO conversation_attachments (conv_id, doc_id) VALUES ($1,$2)
+			 ON CONFLICT DO NOTHING`, convID, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *pgStore) ReplaceChunks(ctx context.Context, docID string, chunks []Chunk) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

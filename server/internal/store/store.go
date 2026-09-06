@@ -186,6 +186,10 @@ type Store interface {
 	ListAllConversations(ctx context.Context, limit int) ([]*ConvAudit, error)
 	// GetConversationAdmin 按 id 无归属校验取会话（admin 审计）。
 	GetConversationAdmin(ctx context.Context, id string) (*ConvAudit, error)
+	// ListConversationAttachments 会话关联的文档（多轮附件记忆；按 added_at 升序）
+	ListConversationAttachments(ctx context.Context, convID string) ([]*Document, error)
+	// LinkConversationDocuments 将会话与会话刚用到的文档建立关联（幂等）。
+	LinkConversationDocuments(ctx context.Context, convID string, docIDs []string) error
 
 	// messages
 	CreateMessage(ctx context.Context, m *Message) error
@@ -194,6 +198,7 @@ type Store interface {
 	// documents / chunks（文件知识库）
 	CreateDocument(ctx context.Context, d *Document) error
 	GetDocument(ctx context.Context, id, userID string) (*Document, error)
+	GetDocumentsByIDs(ctx context.Context, userID string, ids []string) ([]*Document, error)
 	ListDocuments(ctx context.Context, userID string) ([]*Document, error)
 	UpdateDocumentStatus(ctx context.Context, id, userID, status, errMsg string) error
 	DeleteDocument(ctx context.Context, id, userID string) error
@@ -201,6 +206,8 @@ type Store interface {
 	ReplaceChunks(ctx context.Context, docID string, chunks []Chunk) error
 	// SearchChunks 关键词检索用户资料库（ILIKE 简单实现，预留 embedding 升级点）。
 	SearchChunks(ctx context.Context, userID, query string, topK int) ([]ChunkHit, error)
+	// GetDocumentChunks 取某文档的全部文本块（按 seq；用于附件全量注入）。
+	GetDocumentChunks(ctx context.Context, docID string) ([]Chunk, error)
 
 	// artifacts（产物库）
 	CreateArtifact(ctx context.Context, a *Artifact) error

@@ -122,6 +122,38 @@ export function listConversations(): Promise<{ conversations: Conversation[] }> 
   return request('/v1/conversations', { auth: true })
 }
 
+export interface ChatAttachResult {
+  doc_id: string
+  filename: string
+  status: string
+  error?: string
+}
+
+/** 消息级附件上传：多文件 multipart，同步解析入资料库，返回 doc_id 列表。 */
+export async function uploadChatAttachments(files: File[]): Promise<ChatAttachResult[]> {
+  const { accessToken } = useAuth.getState()
+  if (!accessToken) throw new ApiError(401, 'unauthorized')
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  const res = await fetch(`${BASE}/v1/chat/attachments`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: fd,
+  })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const b = (await res.json()) as { error?: string }
+      if (b.error) msg = b.error
+    } catch {
+      // ignore
+    }
+    throw new ApiError(res.status, msg)
+  }
+  const body = (await res.json()) as { results: ChatAttachResult[] }
+  return body.results
+}
+
 export function createConversation(payload: { title?: string; mode?: string; course_id?: string }): Promise<Conversation> {
   return request('/v1/conversations', { method: 'POST', body: payload, auth: true })
 }
