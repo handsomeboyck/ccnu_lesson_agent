@@ -17,6 +17,7 @@ import {
 import { streamChat } from '../api/sse'
 import { useAuth } from '../store/auth'
 import HistoryArtifacts from '../components/HistoryArtifacts'
+import { artifactIcon } from '../lib/artifactIcon'
 import { MODE_LABELS, type Conversation, type Mode, type SSEEvent } from '../types'
 
 // 本地展示消息（含流式中占位）
@@ -490,15 +491,23 @@ export default function ChatPage() {
                                           src={`data:${a.mime};base64,${a.data}`}
                                           alt={a.name}
                                         />
-                                        <span className="artifact-name">📎 {a.name} ⬇</span>
+                                        <span className="artifact-name">{artifactIcon(a.name, a.mime)} {a.name} ⬇</span>
                                       </div>
                                     ) : (
-                                      <span key={i} className="artifact-file">
-                                        📄 {a.name}
+                                      <button
+                                        key={i}
+                                        className="artifact-file"
+                                        title={`下载 ${a.name}`}
+                                        disabled={!a.id && !a.data}
+                                        onClick={() => void downloadArtifact(a).catch(() => {})}
+                                      >
+                                        {artifactIcon(a.name, a.mime)} {a.name}
                                         {a.data && a.mime === 'text/csv' && a.data.length < 2000
                                           ? `（${a.data.length} 字符）`
-                                          : ''}
-                                      </span>
+                                          : a.id
+                                            ? '（点击下载）'
+                                            : ''}
+                                      </button>
                                     ),
                                   )}
                                 </div>

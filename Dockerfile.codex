@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 解析与科学计算常用库（国内源加速）
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
-      pdfplumber PyMuPDF python-docx openpyxl \
+      pdfplumber PyMuPDF python-docx python-pptx openpyxl \
       pandas numpy matplotlib Pillow pytesseract
 
 # 非 root 沙箱用户（uid 1000 与 docker --user 一致）

@@ -2,6 +2,7 @@
 // 每项提供常驻"下载"按钮（优先服务器 blob，保证可靠下载）。
 import { useEffect, useState } from 'react'
 import { downloadArtifact, fetchArtifact, type ServerMessageArtifact } from '../api/client'
+import { artifactIcon } from '../lib/artifactIcon'
 
 /** 图片自动拉取 raw（仅当没有内嵌 data 时）；data 已给则直接 data URL 即时渲染。 */
 function useImageSrc(a: ServerMessageArtifact) {
@@ -37,9 +38,12 @@ export default function HistoryArtifacts({ artifacts }: { artifacts: ServerMessa
   if (!artifacts || artifacts.length === 0) return null
   return (
     <div className="hist-artifacts">
-      {artifacts.map((a) => (
-        <ArtifactItem key={a.id} a={a} />
-      ))}
+      <div className="hist-artifacts-title">📎 生成的文件（点击缩略图放大 / 下载）</div>
+      <div className="hist-artifacts-grid">
+        {artifacts.map((a) => (
+          <ArtifactItem key={a.id} a={a} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -77,7 +81,9 @@ function ArtifactItem({ a }: { a: ServerMessageArtifact }) {
             <div className="hist-artifact-thumb loading">加载中…</div>
           )}
           <div className="hist-artifact-meta">
-            <span className="hist-artifact-name">📎 {a.name}</span>
+            <span className="hist-artifact-name">
+              {artifactIcon(a.name, a.mime)} {a.name}
+            </span>
             {(a.id || a.data) && (
               <button className="hist-artifact-dl" onClick={() => void download()} disabled={downloading}>
                 {downloading ? '下载中…' : '⬇ 下载'}
@@ -110,7 +116,7 @@ function ArtifactItem({ a }: { a: ServerMessageArtifact }) {
           title={`下载 ${a.name}`}
           disabled={downloading}
         >
-          📄 {a.name}（{downloading ? '下载中…' : '点击下载'}）
+          {artifactIcon(a.name, a.mime)} {a.name}（{downloading ? '下载中…' : '点击下载'}）
         </button>
       )}
       {error && <span className="hist-artifact-err">⚠ {error}</span>}

@@ -138,24 +138,34 @@ func collectArtifacts(outDir string) []Artifact {
 		switch strings.ToLower(filepath.Ext(d.Name())) {
 		case ".png":
 			a.Mime = "image/png"
+		case ".jpg", ".jpeg":
+			a.Mime = "image/jpeg"
+		case ".gif":
+			a.Mime = "image/gif"
 		case ".csv":
 			a.Mime = "text/csv"
-		case ".txt", ".md", ".json", ".html":
+		case ".txt", ".md", ".json", ".html", ".py", ".log":
 			a.Mime = "text/plain"
 		case ".pdf":
 			a.Mime = "application/pdf"
+		case ".docx":
+			a.Mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+		case ".pptx":
+			a.Mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+		case ".xlsx":
+			a.Mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 		default:
-			return nil // 只保留可展示类型
+			return nil // 只保留可展示/可下载类型
 		}
 		raw, err := os.ReadFile(p)
 		if err != nil {
 			return nil
 		}
-		// 图片 base64 内嵌展示；文本原样
-		if strings.HasPrefix(a.Mime, "image/") {
-			a.Data = base64.StdEncoding.EncodeToString(raw)
-		} else {
+		// 文本原样（前端/模型预览）；图片与二进制文档 base64 内嵌传输
+		if strings.HasPrefix(a.Mime, "text/") {
 			a.Data = string(raw)
+		} else {
+			a.Data = base64.StdEncoding.EncodeToString(raw)
 		}
 		out = append(out, a)
 		return nil
