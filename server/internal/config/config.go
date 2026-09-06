@@ -1,8 +1,10 @@
-// Package config 负责加载服务端配置（环境变量 + 默认值）。
+// Package config 负责加载服务端配置（.env 文件 + 环境变量 + 默认值）。
 package config
 
 import (
+	"bufio"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -17,8 +19,44 @@ type Config struct {
 	OpenAIModel     string
 }
 
-// Load 从环境变量读取配置，未设置时使用默认值（适合本地开发）。
+// LoadDotEnv 读取 .env 文件（KEY=VALUE，支持 # 注释与可选引号）。
+// 优先级：已存在的系统环境变量 > .env 文件值（即 .env 不覆盖已 export 的变量）。
+// 文件路径：ENV_FILE 环境变量指定，否则默认 "./.env"；文件不存在时静默跳过。
+func LoadDotEnv() {
+	path := os.Getenv("ENV_FILE")
+	if path == "" {
+		path = "./.env"
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		eq := strings.Index(line, "=")
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		val := strings.TrimSpace(line[eq+1:])
+		val = strings.Trim(val, `"'`)
+		if key == "" {
+			continue
+		}
+		if _, ok := os.LookupEnv(key); !ok {
+			_ = os.Setenv(key, val)
+		}
+	}
+}
+
+// Load 从环境变量读取配置（先加载 .env），未设置时使用默认值（适合本地开发）。
 func Load() *Config {
+	LoadDotEnv()
 	cfg := &Config{
 		Port:            getenv("PORT", "8080"),
 		JWTSecret:       getenv("JWT_SECRET", "dev-secret-change-me-in-production"),
