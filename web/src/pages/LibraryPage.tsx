@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   deleteLibraryFile,
   listLibrary,
+  logout,
   uploadLibraryFile,
   type LibraryFile,
 } from '../api/client'
@@ -116,6 +117,15 @@ export default function LibraryPage() {
           <Link to="/" className="btn-ghost">
             ← 回对话
           </Link>
+          <button
+            className="btn-ghost"
+            onClick={() => {
+              void logout()
+              window.location.href = '/login'
+            }}
+          >
+            ⎋ 退出
+          </button>
           <input ref={fileRef} type="file" multiple accept={ACCEPT} hidden onChange={pickFiles} />
         </div>
       </header>

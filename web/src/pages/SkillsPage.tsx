@@ -4,6 +4,7 @@ import {
   deleteSkill,
   getSkillDetail,
   listSkills,
+  logout,
   saveSkill,
   type SkillInfo,
 } from '../api/client'
@@ -133,6 +134,15 @@ export default function SkillsPage() {
           <Link to="/" className="btn-ghost">
             ← 回对话
           </Link>
+          <button
+            className="btn-ghost"
+            onClick={() => {
+              void logout()
+              window.location.href = '/login'
+            }}
+          >
+            ⎋ 退出
+          </button>
         </div>
       </header>
 

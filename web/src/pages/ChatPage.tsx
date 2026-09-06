@@ -7,6 +7,7 @@ import {
   listConversations,
   listMessages,
   listSkills,
+  logout,
   renameConversation,
   type CommandInfo,
   type ServerMessage,
@@ -55,7 +56,6 @@ function toDisplay(m: ServerMessage): DisplayMsg {
 export default function ChatPage() {
   const user = useAuth((s) => s.user)
   const accessToken = useAuth((s) => s.accessToken)
-  const clearAuth = useAuth((s) => s.clear)
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [commands, setCommands] = useState<CommandInfo[]>([])
@@ -341,17 +341,16 @@ export default function ChatPage() {
               <div className="user-name">{user?.display_name ?? user?.username}</div>
               <div className="user-role">{user?.role}</div>
             </div>
-            <button
-              title="退出登录"
-              className="logout-btn"
-              onClick={() => {
-                clearAuth()
-                window.location.href = '/login'
-              }}
-            >
-              ⎋
-            </button>
           </div>
+          <button
+            className="btn-logout"
+            onClick={() => {
+              void logout()
+              window.location.href = '/login'
+            }}
+          >
+            ⎋ 退出登录
+          </button>
         </div>
       </aside>
 

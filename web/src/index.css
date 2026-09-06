@@ -290,13 +290,25 @@ textarea {
   font-size: 12px;
   color: var(--text-dim);
 }
-.logout-btn {
+.btn-logout {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   color: var(--text-dim);
-  font-size: 16px;
-  padding: 4px;
+  font-size: 13px;
+  background: transparent;
+  transition: all 0.15s;
 }
-.logout-btn:hover {
-  color: var(--text);
+.btn-logout:hover {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.08);
 }
 
 /* ---- 主区 ---- */
