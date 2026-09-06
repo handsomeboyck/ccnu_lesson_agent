@@ -64,7 +64,13 @@ PostgreSQL 建表迁移已备好（`server/migrations/0001_init.sql`），阿里
 ## 里程碑
 
 - [x] **M0** 骨架打通：JWT 认证、会话管理、SSE 流式对话、登录注册 + GPT 风格多轮聊天 UI
-- [ ] **M1** Agent + Skill：tools 协议循环、Skill 框架与注册表
+- [x] **M1** Agent + Skill：function calling 工具循环（上限 5 轮）、Skill 框架与注册表、首批 Skill（quiz_generator / explain_topic / knowledge_retrieve 占位）、前端 Skill 面板 + 工具调用卡片
 - [ ] **M2** RAG：课程知识库、文档上传/向量化/检索、引用溯源
-- [ ] **M3** 教育业务：课程/班级/角色权限、测评 skill、学情统计
+- [ ] **M3** 教育业务：课程/班级/角色权限、测评 skill（批改、诊断）、学情统计
 - [ ] **M4** 上线：阿里云部署、Postgres 接入、限流、审计、监控
+
+### M1 试用示例
+
+无 API key（Demo 模式）即可体验工具链路：新对话 → 选「练习测评」模式 → 发送
+「生成 5 道一元二次方程练习题」，可看到 `quiz_generator` 工具调用卡片与题目流式输出。
+配置 `OPENAI_API_KEY` 后由真实模型自主决定何时调用 Skill。

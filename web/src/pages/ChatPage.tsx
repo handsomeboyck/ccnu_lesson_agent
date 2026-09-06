@@ -5,8 +5,10 @@ import {
   deleteConversation,
   listConversations,
   listMessages,
+  listSkills,
   renameConversation,
   type ServerMessage,
+  type SkillInfo,
 } from '../api/client'
 import { streamChat } from '../api/sse'
 import { useAuth } from '../store/auth'
@@ -20,6 +22,21 @@ interface DisplayMsg {
   pending?: boolean
 }
 
+// 一次工具调用（卡片展示）
+interface ToolStep {
+  key: string
+  name: string
+  summary?: string
+  running: boolean
+}
+
+// Skill 点击时预填的示例指令
+const SKILL_PRESETS: Record<string, string> = {
+  quiz_generator: '请用练习模式生成 5 道一元二次方程练习题',
+  explain_topic: '请讲解「导数」这个概念，并用苏格拉底式提问引导我',
+  knowledge_retrieve: '请结合课程资料回答：',
+}
+
 const WELCOME_SUGGESTIONS = [
   '用苏格拉底式提问帮我理解「导数」的概念',
   '生成 5 道一元二次方程练习题',
@@ -30,7 +47,7 @@ function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
-/** 服务端消息 → 展示消息（M0 仅 user/assistant，tool 消息忽略）。 */
+/** 服务端消息 → 展示消息（M0/M1 仅 user/assistant）。 */
 function toDisplay(m: ServerMessage): DisplayMsg {
   return { id: m.id, role: m.role === 'user' ? 'user' : 'assistant', content: m.content }
 }
@@ -41,8 +58,10 @@ export default function ChatPage() {
   const clearAuth = useAuth((s) => s.clear)
 
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const [skills, setSkills] = useState<SkillInfo[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [messages, setMessages] = useState<DisplayMsg[]>([])
+  const [toolSteps, setToolSteps] = useState<ToolStep[]>([])
   const [draftMode, setDraftMode] = useState<Mode>('companion')
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -50,6 +69,15 @@ export default function ChatPage() {
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const activeConv = conversations.find((c) => c.id === activeId) ?? null
+
+  // ---- 初始化：会话列表 + Skill 清单 ----
+  useEffect(() => {
+    void refreshConversations()
+    void listSkills()
+      .then(({ skills: list }) => setSkills(list))
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ---- 会话列表 ----
   const refreshConversations = useCallback(async () => {
@@ -61,32 +89,27 @@ export default function ChatPage() {
     }
   }, [])
 
-  useEffect(() => {
-    void refreshConversations()
-  }, [refreshConversations])
-
   // ---- 载入/切换会话 ----
-  const openConversation = useCallback(
-    async (id: string) => {
-      abortRef.current?.abort()
-      setActiveId(id)
-      setError('')
-      setSending(false)
-      setMessages([])
-      try {
-        const { messages: msgs } = await listMessages(id)
-        setMessages(msgs.map((m) => toDisplay(m)))
-      } catch (err) {
-        setError(err instanceof Error ? err.message : '加载消息失败')
-      }
-    },
-    [],
-  )
+  const openConversation = useCallback(async (id: string) => {
+    abortRef.current?.abort()
+    setActiveId(id)
+    setError('')
+    setSending(false)
+    setToolSteps([])
+    setMessages([])
+    try {
+      const { messages: msgs } = await listMessages(id)
+      setMessages(msgs.map((m) => toDisplay(m)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载消息失败')
+    }
+  }, [])
 
   const newChat = useCallback(() => {
     abortRef.current?.abort()
     setActiveId(null)
     setMessages([])
+    setToolSteps([])
     setError('')
     setSending(false)
   }, [])
@@ -99,6 +122,7 @@ export default function ChatPage() {
     setInput('')
     setError('')
     setSending(true)
+    setToolSteps([])
 
     // 无会话时新建用 draftMode；否则沿用会话自身模式
     const sendMode = activeConv ? activeConv.mode : draftMode
@@ -113,24 +137,34 @@ export default function ChatPage() {
 
     const handleEvent = (ev: SSEEvent) => {
       try {
+        const data = JSON.parse(ev.data) as Record<string, unknown>
         if (ev.event === 'meta') {
-          const data = JSON.parse(ev.data) as { conversation_id?: string }
-          if (data.conversation_id) createdId = data.conversation_id
+          if (typeof data.conversation_id === 'string') createdId = data.conversation_id
         } else if (ev.event === 'delta') {
-          const data = JSON.parse(ev.data) as { text?: string }
-          if (data.text) {
+          const text = String(data.text ?? '')
+          if (text) {
             setMessages((prev) => {
               const copy = [...prev]
               const last = copy[copy.length - 1]
-              if (last && last.pending) last.content += data.text
+              if (last && last.pending) last.content += text
               return copy
             })
           }
+        } else if (ev.event === 'tool_call') {
+          const name = String(data.name ?? '')
+          setToolSteps((prev) => [
+            ...prev,
+            { key: uid(), name, summary: '调用中…', running: true },
+          ])
+        } else if (ev.event === 'tool_result') {
+          const name = String(data.name ?? '')
+          const summary = String(data.summary ?? '执行完成')
+          setToolSteps((prev) =>
+            prev.map((s) => (s.name === name && s.running ? { ...s, summary, running: false } : s)),
+          )
         } else if (ev.event === 'error') {
-          const data = JSON.parse(ev.data) as { message?: string }
-          setError(data.message ?? '生成出错')
+          setError(String(data.message ?? '生成出错'))
         }
-        // tool_call / tool_result：M1 Skill 可视化
       } catch {
         // 忽略无法解析的事件
       }
@@ -150,17 +184,11 @@ export default function ChatPage() {
         setError(err instanceof Error ? err.message : '请求失败')
       }
     } finally {
-      // 以服务端为准刷新消息与会话列表（首轮 meta 可能返回新建会话 id）
-      const finalId = createdId ?? activeId
-      if (finalId) {
-        try {
-          const { messages: msgs } = await listMessages(finalId)
-          setMessages(msgs.map((m) => toDisplay(m)))
-          setActiveId(finalId)
-        } catch {
-          // ignore
-        }
-      }
+      // 本地流式内容已与服务端一致；收尾标记并刷新会话列表
+      setMessages((prev) =>
+        prev.map((m) => (m.pending ? { ...m, pending: false } : m)),
+      )
+      if (createdId && createdId !== activeId) setActiveId(createdId)
       await refreshConversations()
       setSending(false)
       abortRef.current = null
@@ -170,7 +198,7 @@ export default function ChatPage() {
   // ---- 会话操作 ----
   async function handleRename(conv: Conversation) {
     const title = window.prompt('重命名会话：', conv.title)
-    if (!title || title.trim() === conv.title || !title.trim()) return
+    if (!title || !title.trim() || title.trim() === conv.title) return
     try {
       await renameConversation(conv.id, title.trim())
       await refreshConversations()
@@ -190,6 +218,13 @@ export default function ChatPage() {
     }
   }
 
+  function pickSkill(s: SkillInfo) {
+    const preset = SKILL_PRESETS[s.name] ?? `请调用 ${s.name}：`
+    setInput(preset)
+    // 聚焦输入框
+    document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus()
+  }
+
   // ---- 输入 ----
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -205,7 +240,7 @@ export default function ChatPage() {
   // ---- 自动滚动 ----
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, sending])
+  }, [messages, toolSteps, sending])
 
   return (
     <div className="chat-layout">
@@ -295,13 +330,25 @@ export default function ChatPage() {
           )}
         </header>
 
+        {/* Skill 面板（新对话时展示，点击预填指令） */}
+        {!activeConv && skills.length > 0 && (
+          <div className="skill-panel">
+            <span className="skill-panel-label">内置 Skill：</span>
+            {skills.map((s) => (
+              <button key={s.name} className="skill-chip" title={s.description} onClick={() => pickSkill(s)}>
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* 消息区 */}
         <div className="messages">
           {messages.length === 0 && !sending && (
             <div className="welcome">
               <div className="welcome-logo">🎓</div>
               <h2>教育版智能学伴</h2>
-              <p>多轮对话 · 流式输出 · 学伴 / 练习 / 教师三种模式</p>
+              <p>多轮对话 · 流式输出 · 内置 Skill · 学伴 / 练习 / 教师三种模式</p>
               <div className="suggestions">
                 {WELCOME_SUGGESTIONS.map((s) => (
                   <button key={s} className="suggestion" onClick={() => void handleSend(s)}>
@@ -311,21 +358,36 @@ export default function ChatPage() {
               </div>
             </div>
           )}
-          {messages.map((m) => (
-            <div key={m.id} className={`msg-row ${m.role}`}>
-              <div className="msg-avatar">{m.role === 'assistant' ? 'AI' : '你'}</div>
-              <div className="msg-bubble">
-                {m.role === 'assistant' ? (
-                  <div className="markdown-body">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                    {m.pending && <span className="cursor-blink">▍</span>}
-                  </div>
-                ) : (
-                  <div className="user-text">{m.content}</div>
-                )}
+          {messages.map((m, mi) => {
+            const isStreamingBot = m.role === 'assistant' && m.pending
+            return (
+              <div key={m.id} className={`msg-row ${m.role}`}>
+                <div className="msg-avatar">{m.role === 'assistant' ? 'AI' : '你'}</div>
+                <div className="msg-bubble">
+                  {m.role === 'assistant' ? (
+                    <div className="markdown-body">
+                      {/* 工具调用卡片（仅挂在本轮流式的最后一条 assistant 消息上） */}
+                      {isStreamingBot && mi === messages.length - 1 && toolSteps.length > 0 && (
+                        <div className="tool-steps">
+                          {toolSteps.map((t) => (
+                            <div key={t.key} className={`tool-card ${t.running ? 'running' : 'done'}`}>
+                              <span className="tool-card-icon">{t.running ? '⚙' : '✓'}</span>
+                              <span className="tool-card-name">{t.name}</span>
+                              <span className="tool-card-summary">{t.summary}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                      {m.pending && <span className="cursor-blink">▍</span>}
+                    </div>
+                  ) : (
+                    <div className="user-text">{m.content}</div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
           {error && (
             <div className="error-banner">
               <span>⚠ {error}</span>
@@ -355,7 +417,7 @@ export default function ChatPage() {
               </button>
             )}
           </div>
-          <p className="composer-hint">学伴 AI 生成内容仅供参考，请以教材与老师讲解为准。</p>
+          <p className="composer-hint">学伴 AI 生成内容仅供参考，学习请以教材与老师讲解为准。</p>
         </div>
       </main>
     </div>

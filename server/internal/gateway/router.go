@@ -10,14 +10,16 @@ import (
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/auth"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/config"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/model"
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/skill"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
 )
 
 // New 构建全部路由。
-func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.Provider, modelName string) http.Handler {
+func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.Provider,
+	reg *skill.Registry, modelName string) http.Handler {
 	authH := &authService{svc: authSvc}
 	convH := &convService{store: st}
-	chatH := &chatService{store: st, conv: convH, provider: prov, model: modelName}
+	chatH := &chatService{store: st, conv: convH, provider: prov, registry: reg, model: modelName}
 
 	mux := http.NewServeMux()
 
@@ -44,9 +46,18 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	// 对话（SSE，需登录）
 	mux.HandleFunc("POST /v1/chat", authH.requireAuth(chatH.stream))
 
-	// Skill 清单（M1 起实现内容，先占位空列表保证前端契约）
+	// Skill 清单（含说明与可用模式，供前端面板渲染）
 	mux.HandleFunc("GET /v1/skills", authH.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"skills": []any{}})
+		all := reg.All()
+		items := make([]map[string]any, 0, len(all))
+		for _, s := range all {
+			items = append(items, map[string]any{
+				"name":        s.Name(),
+				"description": s.Description(),
+				"modes":       s.Modes(),
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"skills": items})
 	}))
 
 	handler := http.Handler(mux)

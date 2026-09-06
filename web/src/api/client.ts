@@ -144,3 +144,15 @@ export interface ServerMessage {
 export function listMessages(conversationId: string): Promise<{ messages: ServerMessage[] }> {
   return request(`/v1/conversations/${conversationId}/messages`, { auth: true })
 }
+
+// ---- Skills ----
+
+export interface SkillInfo {
+  name: string
+  description: string
+  modes: string[]
+}
+
+export function listSkills(): Promise<{ skills: SkillInfo[] }> {
+  return request('/v1/skills', { auth: true })
+}

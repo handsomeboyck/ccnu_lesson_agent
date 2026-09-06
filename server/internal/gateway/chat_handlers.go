@@ -9,6 +9,7 @@ import (
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/agent"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/model"
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/skill"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
 )
 
@@ -17,6 +18,7 @@ type chatService struct {
 	store    store.Store
 	conv     *convService
 	provider model.Provider
+	registry *skill.Registry
 	model    string
 }
 
@@ -28,7 +30,7 @@ type chatRequest struct {
 }
 
 // stream 事件协议见 Agent.md：
-// meta → (tool_call/tool_result, M1) → delta* → done | error
+// meta → (tool_call / tool_result)* → delta* → done | error
 func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	claims := claimsFrom(r.Context())
 
@@ -58,7 +60,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = c.store.TouchConversation(r.Context(), conv.ID, claims.UserID, time.Now())
 
-	// 3. 组装历史（含本条 user 消息）
+	// 3. 组装历史（用户/助手消息，含本条）
 	msgs, err := c.store.ListMessages(r.Context(), conv.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
@@ -66,7 +68,9 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	}
 	history := make([]model.Msg, 0, len(msgs))
 	for _, m := range msgs {
-		history = append(history, model.Msg{Role: m.Role, Content: m.Content})
+		if m.Role == "user" || m.Role == "assistant" {
+			history = append(history, model.Msg{Role: m.Role, Content: m.Content})
+		}
 	}
 
 	// 4. SSE 头
@@ -83,12 +87,20 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	// 首次 meta 事件（前端据此更新会话 id）
-	meta := map[string]string{"conversation_id": conv.ID}
-	writeSSE(w, "meta", meta)
+	writeSSE(w, "meta", map[string]string{"conversation_id": conv.ID})
 	flusher.Flush()
 
-	// 5. 驱动 Agent 流式生成
-	evCh, err := agent.RunChat(r.Context(), c.provider, conv.Mode, history, c.model)
+	// 5. 驱动 Agent（LLM ↔ Skill 工具循环）
+	env := &skill.Env{
+		UserID:    claims.UserID,
+		CourseID:  conv.CourseID,
+		Mode:      conv.Mode,
+		Store:     c.store,
+		Model:     c.provider,
+		ModelName: c.model,
+	}
+	start := time.Now()
+	evCh, err := agent.Run(r.Context(), c.provider, c.registry, env, conv.Mode, c.model, history)
 	if err != nil {
 		writeSSE(w, "error", map[string]string{"code": "internal", "message": err.Error()})
 		flusher.Flush()
@@ -97,22 +109,32 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 
 	var sb strings.Builder
 	var usage *model.Usage
-	errorCode := ""
-	errorMsg := ""
+	errorCode, errorMsg := "", ""
 
 	for ev := range evCh {
 		switch ev.Kind {
-		case model.KindDelta:
+		case agent.EventDelta:
 			sb.WriteString(ev.Content)
 			writeSSE(w, "delta", map[string]string{"text": ev.Content})
 			flusher.Flush()
-		case model.KindUsage:
-			usage = ev.Usage
-		case model.KindToolCall:
-			// M1：Skill 调度后启用
-			writeSSE(w, "tool_call", json.RawMessage(ev.Content))
+		case agent.EventToolCall:
+			if ev.Tool != nil {
+				writeSSE(w, "tool_call", map[string]any{
+					"id":        ev.Tool.ID,
+					"name":      ev.Tool.Name,
+					"arguments": ev.Tool.Arguments,
+				})
+				flusher.Flush()
+			}
+		case agent.EventToolResult:
+			writeSSE(w, "tool_result", map[string]any{
+				"name":    ev.Tool.Name,
+				"summary": ev.Summary,
+			})
 			flusher.Flush()
-		case model.KindError:
+		case agent.EventEnd:
+			usage = ev.Usage
+		case agent.EventError:
 			errorCode, errorMsg = "internal", ev.Err.Error()
 		}
 		if r.Context().Err() != nil { // 客户端断开
@@ -146,7 +168,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		writeSSE(w, "done", map[string]any{
 			"message_id":  assistantID,
 			"usage":       usage,
-			"duration_ms": 0,
+			"duration_ms": time.Since(start).Milliseconds(),
 		})
 	} else {
 		writeSSE(w, "error", map[string]string{"code": "empty", "message": "no content generated"})

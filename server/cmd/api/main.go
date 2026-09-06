@@ -15,6 +15,7 @@ import (
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/config"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/gateway"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/model"
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/skill"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
 )
 
@@ -26,10 +27,14 @@ func main() {
 
 	authSvc := auth.NewService(st, cfg)
 
+	// Skill 注册表（内置 Skill 全部注册）
+	reg := skill.NewRegistry()
+	skill.RegisterDefaults(reg)
+
 	// LLM Provider：配置了 OPENAI_API_KEY 用 OpenAI，否则 Demo 模式。
 	prov := model.New(cfg)
 
-	handler := gateway.New(cfg, authSvc, st, prov, cfg.OpenAIModel)
+	handler := gateway.New(cfg, authSvc, st, prov, reg, cfg.OpenAIModel)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
