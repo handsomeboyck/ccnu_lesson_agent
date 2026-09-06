@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -172,8 +173,12 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 记录 Agent 指标（异步写库，失败不影响响应）
-	go recordChatMetrics(r.Context(), c.store, conv.Mode, errorMsg, pendingAsk, usage, toolCalls, time.Since(start))
+	// 记录 Agent 指标（异步写库：用独立 ctx，避免客户端断开后 insert 失败）
+	go func() {
+		mctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		recordChatMetrics(mctx, c.store, conv.Mode, errorMsg, pendingAsk, usage, toolCalls, time.Since(start))
+	}()
 
 	// 6. 持久化助手回复：有文本落文本；仅提问则把问题作为助手消息落库，
 	//    便于学生回答后模型在历史中看到“自己问过什么”。
