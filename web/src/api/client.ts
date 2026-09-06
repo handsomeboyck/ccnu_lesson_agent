@@ -5,7 +5,7 @@ import type { Conversation, TokenPair, User } from '../types'
 const BASE = import.meta.env.VITE_API_BASE ?? ''
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   auth?: boolean
 }
@@ -151,6 +151,9 @@ export interface SkillInfo {
   name: string
   description: string
   modes: string[]
+  commands?: string[]
+  doc?: boolean
+  primitive?: boolean
 }
 
 export interface CommandInfo {
@@ -162,4 +165,69 @@ export interface CommandInfo {
 
 export function listSkills(): Promise<{ skills: SkillInfo[]; commands: CommandInfo[] }> {
   return request('/v1/skills', { auth: true })
+}
+
+export interface SkillDetail {
+  name: string
+  description: string
+  commands: string[]
+  modes: string[]
+  files: string[]
+  content: string
+}
+
+export function getSkillDetail(name: string): Promise<SkillDetail> {
+  return request(`/v1/skills/${name}`, { auth: true })
+}
+
+export function saveSkill(name: string, content: string): Promise<{ name: string }> {
+  return request(`/v1/skills/${name}`, { method: 'PUT', body: { content }, auth: true })
+}
+
+export function deleteSkill(name: string): Promise<void> {
+  return request(`/v1/skills/${name}`, { method: 'DELETE', auth: true })
+}
+
+// ---- 用户资料库 ----
+
+export interface LibraryFile {
+  id: string
+  filename: string
+  ext: string
+  size_bytes: number
+  status: 'parsing' | 'ready' | 'failed'
+  error: string
+  created_at: string
+}
+
+export function listLibrary(): Promise<{ files: LibraryFile[] }> {
+  return request('/v1/library/files', { auth: true })
+}
+
+/** 上传文件（multipart）。返回上传的元数据；解析在服务端异步进行。 */
+export async function uploadLibraryFile(file: File): Promise<LibraryFile> {
+  const { accessToken } = useAuth.getState()
+  if (!accessToken) throw new ApiError(401, 'unauthorized')
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${BASE}/v1/library/files`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const body = (await res.json()) as { error?: string }
+      if (body.error) msg = body.error
+    } catch {
+      // ignore
+    }
+    throw new ApiError(res.status, msg)
+  }
+  return (await res.json()) as LibraryFile
+}
+
+export function deleteLibraryFile(id: string): Promise<void> {
+  return request(`/v1/library/files/${id}`, { method: 'DELETE', auth: true })
 }

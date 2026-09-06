@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -293,6 +294,14 @@ export default function ChatPage() {
             <span className="plus">+</span> 新对话
           </button>
         </div>
+        <nav className="side-nav">
+          <Link to="/library" className="side-nav-item">
+            📚 我的资料库
+          </Link>
+          <Link to="/skills" className="side-nav-item">
+            🧩 技能管理
+          </Link>
+        </nav>
         <nav className="conv-list">
           {conversations.map((c) => (
             <div

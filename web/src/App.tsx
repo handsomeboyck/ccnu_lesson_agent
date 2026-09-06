@@ -5,6 +5,8 @@ import { useAuth } from './store/auth'
 import ChatPage from './pages/ChatPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import SkillsPage from './pages/SkillsPage'
+import LibraryPage from './pages/LibraryPage'
 
 /** 已登录但用户信息缺失时先拉取 /me 恢复会话。 */
 function AuthBootstrap({ children }: { children: ReactNode }) {
@@ -73,6 +75,22 @@ export default function App() {
           element={
             <RequireAuth>
               <ChatPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/skills"
+          element={
+            <RequireAuth>
+              <SkillsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/library"
+          element={
+            <RequireAuth>
+              <LibraryPage />
             </RequireAuth>
           }
         />
