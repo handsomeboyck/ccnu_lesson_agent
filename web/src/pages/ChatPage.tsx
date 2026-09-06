@@ -50,10 +50,31 @@ interface PendingAsk {
   options?: string[]
 }
 
-const WELCOME_SUGGESTIONS = [
-  '用苏格拉底式提问帮我理解「导数」的概念',
-  '生成 5 道一元二次方程练习题',
-  '请讲解勾股定理的证明思路',
+const WELCOME_GUIDES = [
+  {
+    icon: '💬',
+    title: '苏格拉底式答疑',
+    desc: '让 AI 引导你理解概念，而非直接给答案',
+    prompt: '用苏格拉底式提问帮我理解「导数」的概念',
+  },
+  {
+    icon: '📝',
+    title: '练习与测评',
+    desc: '按难度出题、批改作答、诊断薄弱点',
+    prompt: '生成 5 道一元二次方程练习题',
+  },
+  {
+    icon: '📄',
+    title: '生成学习文件',
+    desc: '一键产出 docx 试卷 / pptx 课件 / 图表 / PDF',
+    prompt: '用 execute_code 生成一份三角函数教案 docx',
+  },
+  {
+    icon: '📚',
+    title: '资料库问答',
+    desc: '上传讲义后，AI 基于你的资料作答并标注出处',
+    prompt: '根据我的资料库讲一下勾股定理的证明思路',
+  },
 ]
 
 function uid(): string {
@@ -68,6 +89,39 @@ function toDisplay(m: ServerMessage): DisplayMsg {
     content: m.content,
     artifacts: m.artifacts && m.artifacts.length > 0 ? m.artifacts : undefined,
   }
+}
+
+/** 会话按时间分组：今天 / 昨天 / 更早。 */
+interface ConvGroup {
+  label: string
+  items: Conversation[]
+}
+function groupByDay(list: Conversation[]): ConvGroup[] {
+  const now = new Date()
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const today = startOf(now)
+  const yesterday = today - 86400_000
+  const sorted = [...list].sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+  )
+  const groups: ConvGroup[] = [
+    { label: '今天', items: [] },
+    { label: '昨天', items: [] },
+    { label: '更早', items: [] },
+  ]
+  for (const c of sorted) {
+    const t = new Date(c.updated_at).getTime()
+    if (t >= today) groups[0].items.push(c)
+    else if (t >= yesterday) groups[1].items.push(c)
+    else groups[2].items.push(c)
+  }
+  return groups.filter((g) => g.items.length > 0)
+}
+
+const MODE_ICONS: Record<string, string> = {
+  companion: '🎓',
+  practice: '📝',
+  teacher: '🖊️',
 }
 
 export default function ChatPage() {
@@ -357,35 +411,46 @@ export default function ChatPage() {
           </Link>
         </nav>
         <nav className="conv-list">
-          {conversations.map((c) => (
-            <div
-              key={c.id}
-              className={`conv-item ${c.id === activeId ? 'active' : ''}`}
-              onClick={() => void openConversation(c.id)}
-            >
-              <span className="conv-title">{c.title}</span>
-              <span className="conv-actions">
-                <button
-                  title="重命名"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void handleRename(c)
-                  }}
-                >
-                  ✎
-                </button>
-                <button
-                  title="删除"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void handleDelete(c)
-                  }}
-                >
-                  🗑
-                </button>
-              </span>
-            </div>
-          ))}
+          {(() => {
+            const groups = groupByDay(conversations)
+            return groups.map((g) =>
+              g.items.length === 0 ? null : (
+                <div key={g.label} className="conv-group">
+                  <div className="conv-group-label">{g.label}</div>
+                  {g.items.map((c) => (
+                    <div
+                      key={c.id}
+                      className={`conv-item ${c.id === activeId ? 'active' : ''}`}
+                      onClick={() => void openConversation(c.id)}
+                    >
+                      <span className="conv-avatar">{MODE_ICONS[c.mode] ?? '💬'}</span>
+                      <span className="conv-title">{c.title}</span>
+                      <span className="conv-actions">
+                        <button
+                          title="重命名"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleRename(c)
+                          }}
+                        >
+                          ✎
+                        </button>
+                        <button
+                          title="删除"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleDelete(c)
+                          }}
+                        >
+                          🗑
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ),
+            )
+          })()}
           {conversations.length === 0 && <div className="conv-empty">暂无历史会话</div>}
         </nav>
         <div className="sidebar-foot">
@@ -449,23 +514,48 @@ export default function ChatPage() {
         <div className="messages">
           {messages.length === 0 && !sending && (
             <div className="welcome">
-              <div className="ccnu-emblem lg">华</div>
-              <h2 className="ccnu-wordmark">华中师范大学 · 智能学伴</h2>
-              <p>求实创新 · 立德树人 ｜ 多轮对话 · 流式输出 · 输入 <code>/</code> 主动唤起 Skill</p>
-              <div className="suggestions">
-                {WELCOME_SUGGESTIONS.map((s) => (
-                  <button key={s} className="suggestion" onClick={() => void handleSend(s)}>
-                    {s}
+              <div className="welcome-hero">
+                <div className="welcome-hero-emblem">
+                  <div className="ccnu-emblem lg">华</div>
+                </div>
+                <h2 className="ccnu-wordmark">华中师范大学 · 智能学伴</h2>
+                <p className="welcome-slogan">求实创新 · 立德树人</p>
+                <p className="welcome-sub">
+                  多轮对话 · 流式输出 · 输入 <code>/</code> 唤起 Skill · 生成可下载的学习文件
+                </p>
+              </div>
+              <div className="welcome-guides">
+                {WELCOME_GUIDES.map((g) => (
+                  <button
+                    key={g.title}
+                    className="guide-card"
+                    onClick={() => void handleSend(g.prompt)}
+                  >
+                    <span className="guide-icon">{g.icon}</span>
+                    <span className="guide-text">
+                      <span className="guide-title">{g.title}</span>
+                      <span className="guide-desc">{g.desc}</span>
+                    </span>
+                    <span className="guide-arrow">↗</span>
                   </button>
                 ))}
               </div>
+              <p className="welcome-tip">试试直接提问，或点击上方引导卡开始</p>
             </div>
           )}
           {messages.map((m, mi) => {
             const isStreamingBot = m.role === 'assistant' && m.pending
             return (
               <div key={m.id} className={`msg-row ${m.role}`}>
-                <div className="msg-avatar">{m.role === 'assistant' ? 'AI' : '你'}</div>
+                <div className="msg-avatar">
+                  {m.role === 'assistant' ? (
+                    <span className="avatar-ai">学</span>
+                  ) : (
+                    <span className="avatar-you">
+                      {(user?.display_name ?? user?.username ?? '我').slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                </div>
                 <div className="msg-bubble">
                   {m.role === 'assistant' ? (
                     <div className="markdown-body">
