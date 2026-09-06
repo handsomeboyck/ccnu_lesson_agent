@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  exportAllAudit,
   exportAuditConversation,
   fetchAuditTranscript,
   fetchMonitorOverview,
@@ -248,6 +249,14 @@ export default function MonitorPage() {
               placeholder="搜索用户 / 会话标题…"
             />
             <span className="audit-count">共 {filteredConvs.length} 个会话</span>
+            {convs.length > 0 && (
+              <button
+                className="btn-primary sm export-all-btn"
+                onClick={() => void exportAllAudit().catch((e) => setConvErr(e instanceof Error ? e.message : '导出失败'))}
+              >
+                📦 一键导出全部会话（zip）
+              </button>
+            )}
             {convs.length > 0 && (
               <button
                 className="btn-ghost"

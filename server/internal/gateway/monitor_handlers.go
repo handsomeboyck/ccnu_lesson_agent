@@ -1,7 +1,10 @@
 package gateway
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/csv"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -245,6 +248,101 @@ func (m *monitorService) auditExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s.txt`, url.PathEscape(conv.Title)))
 	_, _ = w.Write([]byte(sb.String()))
+}
+
+// auditExportAll 一键导出全站会话：zip（users/<用户名>/<会话标题>.txt）+ 总清单 CSV。
+func (m *monitorService) auditExportAll(w http.ResponseWriter, r *http.Request) {
+	convs, err := m.store.ListAllConversations(r.Context(), 2000)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list: "+err.Error())
+		return
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	// 总清单 CSV
+	csvBuf := &bytes.Buffer{}
+	cw := csv.NewWriter(csvBuf)
+	_ = cw.Write([]string{"username", "display_name", "title", "mode", "created_at", "updated_at", "file"})
+	written := 0
+	for _, c := range convs {
+		msgs, err := m.store.ListMessages(r.Context(), c.ID)
+		if err != nil {
+			continue
+		}
+		var qa []*store.Message
+		for _, m := range msgs {
+			if m.Role == "user" || m.Role == "assistant" {
+				qa = append(qa, m)
+			}
+		}
+		if len(qa) == 0 {
+			continue // 无问答内容的会话不入清单
+		}
+		dir := safeFilename(c.Username)
+		if dir == "" {
+			dir = safeFilename(c.DisplayName)
+		}
+		if dir == "" {
+			dir = "unknown"
+		}
+		name := safeFilename(c.Title)
+		if name == "" {
+			name = "chat-" + c.ID
+		}
+		if len(name) > 60 {
+			name = name[:60]
+		}
+		path := dir + "/" + name + ".txt"
+
+		// 写入会话 txt
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("标题：%s\n用户：%s（%s）\n模式：%s\n创建：%s\n\n",
+			c.Title, c.Username, c.DisplayName, c.Mode, c.CreatedAt.Format("2006-01-02 15:04:05")))
+		for _, msg := range qa {
+			who := "学生"
+			if msg.Role == "assistant" {
+				who = "AI 学伴"
+			}
+			sb.WriteString(fmt.Sprintf("【%s %s】\n%s\n\n", who, msg.CreatedAt.Format("15:04"), msg.Content))
+		}
+		fw, err := zw.Create(path)
+		if err == nil {
+			_, _ = fw.Write([]byte(sb.String()))
+		}
+		_ = cw.Write([]string{c.Username, c.DisplayName, c.Title, c.Mode,
+			c.CreatedAt.Format(time.RFC3339), c.UpdatedAt.Format(time.RFC3339), path})
+		written++
+	}
+	cw.Flush()
+	if fw, err := zw.Create("manifest.csv"); err == nil {
+		_, _ = fw.Write(csvBuf.Bytes())
+	}
+	_ = zw.Close()
+
+	if written == 0 {
+		writeError(w, http.StatusNotFound, "没有可导出的会话")
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s.zip`, url.PathEscape("ccnu_全部会话_"+time.Now().Format("20060102"))))
+	_, _ = w.Write(buf.Bytes())
+}
+
+// safeFilename 清理文件名（防路径穿越/非法字符）。
+func safeFilename(s string) string {
+	s = strings.TrimSpace(s)
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|', '\n', '\r', '\t':
+			b.WriteRune('_')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // topSkills 截取技能分布 top N（降序 key）。

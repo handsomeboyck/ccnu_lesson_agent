@@ -384,6 +384,26 @@ export async function exportAuditConversation(conv: AuditConv): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(u), 5000)
 }
 
+/** 一键导出全部会话为 zip（按用户分文件夹 + manifest.csv）。 */
+export async function exportAllAudit(): Promise<void> {
+  const { accessToken } = useAuth.getState()
+  if (!accessToken) throw new ApiError(401, 'unauthorized')
+  const res = await fetch(`${BASE}/v1/monitor/conversations/export-all`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`)
+  const blob = await res.blob()
+  const u = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = u
+  const d = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  link.download = `ccnu_全部会话_${d}.zip`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(u), 5000)
+}
+
 /** 统一下载入口：优先从服务器按 id 取 blob（可靠下载）；无 id 时回退 data URL。 */
 export async function downloadArtifact(a: { id?: string; name: string; mime: string; data?: string }): Promise<void> {
   let blob: Blob | null = null
