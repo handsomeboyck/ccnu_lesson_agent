@@ -48,9 +48,12 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	content := strings.TrimSpace(in.Content)
-	if content == "" {
+	if content == "" && len(in.Attachments) == 0 {
 		writeError(w, http.StatusBadRequest, "content is required")
 		return
+	}
+	if content == "" {
+		content = "请阅读我上传的文件并给出简要总结。" // 纯附件消息默认指令
 	}
 
 	// 1. 会话解析/新建 + 归属校验

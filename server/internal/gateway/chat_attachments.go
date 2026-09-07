@@ -119,6 +119,9 @@ const (
 func buildAttachmentContext(ctx context.Context, st store.Store, newDocs, allDocs []*store.Document, question string) string {
 	var sb strings.Builder
 	if len(newDocs) > 0 {
+		// 强指令：文件全文已随本消息给出，让模型直接使用，避免被"先检索资料库"误导。
+		sb.WriteString("【系统提示：用户本次上传了文件，其内容已完整附在本消息中。请直接阅读这些内容并据此回答，可引用并在引用处标注文件名；" +
+			"除非用户明确要求检索整个资料库，否则不要调用 knowledge_retrieve。若附上的内容为空或无法读取，请如实告诉用户。】\n\n")
 		total := 0
 		for _, d := range newDocs {
 			if d.Status != "ready" {
@@ -152,7 +155,7 @@ func buildAttachmentContext(ctx context.Context, st store.Store, newDocs, allDoc
 	if len(hits) == 0 {
 		return "" // 检索不到就不注入，避免噪音
 	}
-	sb.WriteString("（本会话曾上传文件，以下为按当前问题检索到的相关片段，可据此作答并标注出处）\n")
+	sb.WriteString("【系统提示：本会话用户此前上传过文件，以下片段是按当前问题从这些文件中检索到的相关内容，请据此作答并标注出处；除非用户明确要求检索整个资料库，否则不要调用 knowledge_retrieve。】\n")
 	for _, h := range hits {
 		runes := []rune(h.Content)
 		if len(runes) > 500 {
