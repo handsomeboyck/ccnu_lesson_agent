@@ -84,11 +84,14 @@ func (c *Client) Enabled() bool { return c != nil && c.baseURL != "" }
 // SysMetricsResponse worker 返回的系统概览（宿主 + 容器）。
 type SysMetricsResponse struct {
 	Host struct {
-		Hostname   string    `json:"hostname"`
+		Hostname   string     `json:"hostname"`
 		LoadAvg    [3]float64 `json:"load_avg"`
-		MemTotalKB int64     `json:"mem_total_kb"`
-		MemAvailKB int64     `json:"mem_avail_kb"`
-		CPUCores   int       `json:"cpu_cores"`
+		MemTotalKB int64      `json:"mem_total_kb"`
+		MemAvailKB int64      `json:"mem_avail_kb"`
+		CPUCores   int        `json:"cpu_cores"`
+		DiskTotalKB int64     `json:"disk_total_kb"`
+		DiskFreeKB  int64     `json:"disk_free_kb"`
+		DiskUsePct  float64   `json:"disk_use_pct"`
 	} `json:"host"`
 	Containers []struct {
 		Name    string `json:"name"`

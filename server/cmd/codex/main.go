@@ -126,11 +126,14 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 // HostSnapshot 宿主概览（经 /host 只读挂载读 /proc；未挂载则各项为空）。
 type HostSnapshot struct {
-	Hostname    string   `json:"hostname"`
-	LoadAvg     [3]float64 `json:"load_avg"`
-	MemTotalKB  int64    `json:"mem_total_kb"`
-	MemAvailKB  int64    `json:"mem_avail_kb"`
-	CPUCores    int      `json:"cpu_cores"`
+	Hostname   string     `json:"hostname"`
+	LoadAvg    [3]float64 `json:"load_avg"`
+	MemTotalKB int64      `json:"mem_total_kb"`
+	MemAvailKB int64      `json:"mem_avail_kb"`
+	CPUCores   int        `json:"cpu_cores"`
+	DiskTotalKB int64     `json:"disk_total_kb"` // 宿主根文件系统（/host）总量
+	DiskFreeKB  int64     `json:"disk_free_kb"`  // 可用量（供 df -h 式展示）
+	DiskUsePct  float64   `json:"disk_use_pct"`  // 使用率 %
 }
 
 // ContainerStat 单个容器运行状态（docker stats 采样）。
@@ -164,6 +167,7 @@ func handleSysMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	readMemInfo(&out.Host)
 	out.Host.CPUCores = readCPUCount()
+	readDiskUsage(&out.Host)
 	collectContainerStats(&out.Containers)
 	writeJSON(w, 200, out)
 }

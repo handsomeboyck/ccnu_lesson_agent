@@ -320,6 +320,9 @@ export default function MonitorPage() {
                 <div className="sys-rows">
                   <SysRow label="内存" value={host ? `${((1 - (host.mem_avail_kb ?? 0) / (host.mem_total_kb || 1)) * 100).toFixed(0)}%` : '—'}
                     detail={host ? `${fmtBytes((host.mem_total_kb - host.mem_avail_kb) * 1024)} / ${fmtBytes(host.mem_total_kb * 1024)}` : ''} />
+                  <SysRow label="磁盘" value={host?.disk_use_pct != null ? `${host.disk_use_pct.toFixed(1)}%` : '—'}
+                    danger={host?.disk_use_pct != null && host.disk_use_pct > 80}
+                    detail={host ? `可用 ${fmtBytes((host.disk_free_kb ?? 0) * 1024)} / 共 ${fmtBytes((host.disk_total_kb ?? 0) * 1024)}` : ''} />
                   <SysRow label="负载 1/5/15 分钟" value={host ? host.load_avg.map((v) => v.toFixed(2)).join(' / ') : '—'} />
                 </div>
               </div>
@@ -402,11 +405,13 @@ export default function MonitorPage() {
   )
 }
 
-function SysRow({ label, value, detail }: { label: string; value: string; detail?: string }) {
+function SysRow({ label, value, detail, danger }: { label: string; value: string; detail?: string; danger?: boolean }) {
   return (
     <div className="sys-row">
       <span className="sys-label">{label}</span>
-      <span className="sys-value">{value}</span>
+      <span className="sys-value" style={danger ? { color: 'var(--danger)' } : undefined}>
+        {danger && value.includes('%') ? `⚠ ${value}` : value}
+      </span>
       {detail && <span className="sys-detail">{detail}</span>}
     </div>
   )

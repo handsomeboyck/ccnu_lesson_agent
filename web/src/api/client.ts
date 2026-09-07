@@ -362,6 +362,9 @@ export interface MonitorOverview {
       mem_total_kb: number
       mem_avail_kb: number
       cpu_cores: number
+      disk_total_kb?: number
+      disk_free_kb?: number
+      disk_use_pct?: number
     }
     containers?: { name: string; cpu: string; mem: string; mem_perc: string }[]
   }

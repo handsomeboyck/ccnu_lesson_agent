@@ -11,6 +11,11 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       PORT: "8080"
       WEB_DIST: /app/web/dist
@@ -35,6 +40,11 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_USER: agent
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
@@ -55,6 +65,11 @@ services:
       target: worker
     image: ccnu_codex_worker:latest
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       CODEX_PORT: "9090"
       CODEX_SANDBOX_IMAGE: ccnu-codex:latest
