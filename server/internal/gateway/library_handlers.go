@@ -70,6 +70,7 @@ func storeParsedDocument(ctx context.Context, st store.Store, uploadDir, userID,
 		}
 	}
 	_ = st.UpdateDocumentStatus(ctx, doc.ID, userID, "ready", "")
+	doc.Status = "ready" // 同步完成，返回结构体同步状态（此前 DB 已 ready 但对象仍是 parsing）
 	return doc, nil
 }
 
