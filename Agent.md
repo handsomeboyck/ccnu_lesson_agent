@@ -1,7 +1,7 @@
 # 教育版 Web 智能体（AI Tutor）整体架构
 
-> 版本：v0.5（Skill v2 = Claude 风格 SKILL.md + 文件知识库 + Python 代码沙箱 execute_code 与产物库）
-> 定位：面向教育场景的 ChatGPT 风格 Web 智能体。前端参考 GPT 交互形态，服务端为单一 Agent 内核 + 可插拔 Skill 编排，支持 **自然对话自动触发** 与 **`/命令` 主动唤起** Skill，具备 **ask_user 向学生提问**能力，可上传 pdf/docx/xlsx 作为资料库供对话检索引用，可通过 **Python 代码沙箱（execute_code）** 完成解析/计算/绘图并产出持久化产物；OpenAI 兼容模型接入。
+> 版本：v1.0（生产版 —— Skill v2 = Claude 风格 SKILL.md + 文件知识库 + Python 代码沙箱 execute_code 产物体系 + 消息级附件多轮记忆 + 华师主题 UI + 监控/审计）
+> 定位：面向教育场景的 ChatGPT 风格 Web 智能体。前端参考 GPT 交互形态、浅色学术 UI（华中师范大学品牌：华师蓝主色 + 宋体标题 + 金辅点缀），服务端为单一 Agent 内核 + 可插拔 Skill 编排，支持 **自然对话自动触发** 与 **`/命令` 主动唤起** Skill，具备 **ask_user 向学生提问**能力，可上传 pdf/docx/xlsx 作为资料库供对话检索引用，支持**消息级多文件附件**（上传即读、同会话多轮追问免重传），可通过 **Python 代码沙箱（execute_code）** 完成解析/计算/绘图并产出 docx/pptx/xlsx/pdf/png 等持久化产物；提供**监控中心**（仅 admin：Agent 指标、宿主/容器资源、Postgres 状态、全站对话审计与导出）；OpenAI 兼容模型接入。
 
 ---
 
@@ -106,19 +106,20 @@ User: /quiz 3道一元二次方程困难题
 ### 4.1 前端（`web/`）—— 参考 GPT 交互
 
 **基础能力**：
-- **账号**：登录/注册页；JWT access 自动附带，401 用 refresh 静默续期后重试一次，失败跳登录；路由守卫。
-- **多轮对话**：会话列表/新建/重命名/删除/续载；消息即时落库，刷新可恢复；防重复提交 + 停止生成（Abort）。
+- **账号**：登录/注册页（双栏品牌版：华师蓝渐变品牌区 + 表单卡）；密码框**默认隐藏、可点 👁️/🙈 切换明文**；JWT access 自动附带，401 用 refresh 静默续期后重试一次，失败跳登录；路由守卫（admin 专属路由 RequireRole）。
+- **多轮对话**：会话列表/新建/重命名/删除/续载；按「今天/昨天/更早」分组 + 模式图标；消息即时落库，刷新可恢复；防重复提交 + 停止生成（Abort）。
 - **错误与边界**：登录失效、断线、异常均有反馈。
 
 **交互能力**：
 - **`/` 命令菜单**：输入框键入 `/` 弹出 Skill 命令列表（继续输入过滤，Tab/点击补全为 `"/cmd "`）。
 - **ask_user 交互**：收到 SSE `ask` → 助手气泡显示问题 + 「等待回答」横幅 + 快捷选项按钮；学生回答后自动继续原任务。
-- **Skill 调用卡片**：流式中展示 `⚙调用中 → ✓完成(摘要)`。
+- **Skill 调用卡片**：流式中展示 `⚙调用中 → ✓完成(摘要)`；**产物卡片化**（文件类型图标 WPS/Office 风格 FileIcon：Word📝/Excel📊/PPT📽️/PDF📕…），图片即时预览、docx 可点弹窗网页渲染正文（mammoth）、pdf 内嵌查看器、每卡常驻「⬇ 下载」。
 - **流式渲染**：Markdown + 打字机光标（注意：delta 追加必须是**纯 updater**，避免 StrictMode 双调导致逐字重复——已修复）。
-- **模式切换**：学伴/练习/教师；新会话选模式，历史会话沿用其模式。
+- **模式切换**：学伴/练习/教师（胶囊分段控件）；新会话选模式，历史会话沿用其模式。
 - **Skill 面板**（新对话时）：顶部胶囊列出 `/命令`，点击自动填入。
+- **消息级附件**：输入框 📎 多选（或**拖拽文件到消息区**）→ 上传解析入库 → chips 展示（可删/大小/类型图标）→ 随消息发送（见 §4.5）。
 
-**页面**：`/login` `/register`（公共）；`/` 聊天主界面；**`/library` 我的资料库**（上传 pdf/docx/xlsx/txt，列表/删除/解析状态）；**`/artifacts` 产物库**（沙箱产物网格浏览/预览/下载/删除）；**`/skills` 技能管理**（teacher/admin 增删改 SKILL.md，实时生效）。设置页为规划。
+**页面**：`/login` `/register`（公共）；`/` 聊天主界面（欢迎屏=品牌首屏 + 能力引导卡）；**`/library` 我的资料库**；**`/artifacts` 产物库**（docx/pdf 等网页预览）；**`/skills` 技能管理**；**`/monitor` 监控中心**（仅 admin：指标/宿主/审计，见 §4.6）。
 
 ### 4.2 Agent 内核（`server/internal/agent`，单 Agent 双路径）
 
@@ -166,7 +167,7 @@ version: 1.0.0
 - **文档型技能**（用户可增删改）：行为 100% 由 SKILL.md 定义，Execute = 文档作系统指令 + 用户请求 → 调模型完成。新增技能 = 在 skills/ 目录建文件夹写 SKILL.md（页面 `/skills` 或直接文件），**无需改代码/重启**。
 - 运行管理：`GET /v1/skills`（列表含 doc/primitive 标记）、`GET /v1/skills/{name}`（详情含全文）、`PUT/DELETE /v1/skills/{name}`（teacher/admin）。
 
-**内置技能现状（v0.4）**：
+**内置技能现状**：
 
 | 技能 | 类型 | /命令 | 说明 | 模式 | 状态 |
 |---|---|---|---|---|---|
@@ -186,13 +187,45 @@ version: 1.0.0
 - 检索：`SearchChunks`（Postgres ILIKE；中文 2-gram 分词；内存版同语义）→ knowledge_retrieve 把命中片段带出处注入上下文，模型引用作答。
 - 升级点：检索层已抽象，后续可换 pgvector + embedding（1536 维）。
 
-### 4.5 模型接入（`server/internal/model`）
+### 4.5 消息级附件与多轮记忆（对话中上传文件即读）
+
+**场景**：学生在对话中直接附加文件（pdf/docx/xlsx/txt/md/csv，每次 ≤5 个、单个 ≤30MB），AI 读取内容作答，且**同会话后续追问无需重传**。
+
+- 前端：输入框 📎 多选 + **拖拽到消息区**；选中文件以 chips 展示（类型图标/名/大小/可删）；上传为**同步解析**——`POST /v1/chat/attachments`（multipart `files`，可多文件）解析完成才返回 `doc_id`（`status=ready`，无 OCR；不做"解析未完就对话"的竞态）。
+- 存储：附件与资料库上传**同库**（自动成为用户资料库文件，可复用/删除）；`conversation_attachments(conv_id, doc_id)` 记录"会话用过哪些文件"（迁移 0006），会话删除级联解绑、**文件保留在资料库**。
+- 对话注入（chat handler）：
+  - **首轮**（本条带 attachments）：把文件正文（docFullText 由 document_chunks 重组，每文件 ≤4000 字、单轮 ≤12000 字）**全量注入**发送给模型的那条 user 消息（存储仍保持原文，仅模型可见富文本）；
+  - **后续追问**（无新附件）：会话存在关联文件 → 按当前问题关键词在关联文件分块中检索 topK 注入（多轮记忆，无需重传/点名）；
+  - 注入前带【系统提示】强指令：内容已给出应**直接阅读使用**，除非用户明确要求检索整个资料库，否则**不要调用 knowledge_retrieve**（SystemPrompt 行为准则同步区分"本条已附文件段落"与"仅提及我的资料"两种情形——曾因检索误导导致模型忽略已注入内容，已修复）。
+- 纯附件消息（无文字）默认指令"请阅读我上传的文件并给出简要总结"。
+
+### 4.6 监控中心与运营审计（仅 admin）
+
+**后端采集**
+- Agent 指标：每次对话/工具调用/沙箱执行写 `metric_events`（迁移 0005：kind=chat|tool|codex、mode、status、token、耗时）；chat 埋点用**独立 context**（客户端断开不丢事件）。
+- 宿主/容器指标：codex-worker `GET /metrics/sys` 经 compose 把宿主根只读挂载到 `/host`，statfs 读磁盘、/proc 读内存/负载/核数（linux build tag），并 `docker ps` + `docker stats` 采样本 compose 三容器。
+- Postgres 状态：`SystemStats`（连接数/库大小/缓存命中/事务）——store 可选接口 `SystemStatsProvider`。
+
+**API（均 admin）**
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/v1/monitor/overview` | 聚合快照：Agent 指标（24h 桶/分位/分布）+ db + host/containers |
+| GET | `/v1/monitor/health` | app/db/codex 健康 |
+| GET | `/v1/monitor/conversations` | 全站会话审计（join 用户名） |
+| GET | `/v1/monitor/conversations/{id}` | 单会话完整问答（user/assistant 成对） |
+| GET | `/v1/monitor/conversations/{id}/export` | 单会话导出 txt |
+| GET | `/v1/monitor/conversations/export-all` | **一键导出全部会话 zip**（按用户分文件夹 + manifest.csv） |
+| POST | `/v1/chat/attachments` | 消息级附件上传（多文件同步解析，见 §4.5） |
+
+**前端 `/monitor`**：健康条、Agent 指标卡（对话/token/延迟 P50/P95/沙箱成功率/错误）、24h 逐小时双柱图（对话蓝/工具金）、模式与技能分布、ECS 宿主（含磁盘使用率，>80% 红色告警）、容器 CPU/内存、PostgreSQL 状态；「用户对话审计」区（搜索用户/标题、查看问答弹窗、单会话导出、一键 zip 导出、复制清单）；每 15s 自动刷新。侧栏仅 admin 可见「🛰️ 监控中心」。
+
+### 4.7 模型接入（`server/internal/model`）
 
 - OpenAI Chat Completions 流式：文本 delta 实时、tool_calls 分片聚合（wire 格式：`type=function` + arguments 为 JSON 字符串——曾踩坑修复）。
 - `Provider.ChatStream`（工具循环用）与 `Provider.Complete`（Skill 内部非流式二次调用用）。
 - 无 `OPENAI_API_KEY` 时启用 DemoProvider（可模拟 quiz 触发与结构化回填），保证本地无网可联调。
 
-### 4.6 代码沙箱（`execute_code` 平台原语 · 已实现，挂件式）
+### 4.8 代码沙箱（`execute_code` 平台原语 · 已实现，挂件式）
 
 **目标**：让 Agent 具备"编写并执行 Python 代码"能力（Code Interpreter / Claude Code 形态）——
 既能解决文件解析生态短板（老 .doc / 扫描 PDF OCR / 复杂表格），也向所有 SKILL.md 技能开放通用计算能力
@@ -200,17 +233,24 @@ version: 1.0.0
 
 **实现要点**：
 - 沙箱底层：**Docker 一次性容器**（`docker run --rm`）+ 独立 **codex-worker 服务**（compose 中 `codex`，
-  挂 docker.sock + 共享作业目录），app 经 HTTP 调用；镜像 `ccnu-codex:latest`
-  （python:3.12-slim + pdfplumber/PyMuPDF/python-docx/openpyxl/pandas/numpy/matplotlib/pytesseract + tesseract-ocr 中文）
+  挂 docker.sock + 共享作业目录 + 宿主根只读 `/host`），app 经 HTTP 调用；镜像 `ccnu-codex:latest`
+  （python:3.12-slim + pdfplumber/PyMuPDF/python-docx/**python-pptx**/openpyxl/pandas/numpy/matplotlib/Pillow/
+  pytesseract/**reportlab/fpdf2** + tesseract-ocr 中文 + **LibreOffice(impress)** + **Noto CJK 字体**，≈1.2GB）
 - 范围：**全开放** —— 平台原语 `execute_code`，任何 SKILL.md / 模型均可调用
 - 网络：**默认禁网**（`--network=none`）
-- 产物：捕获 stdout/stderr/退出码；生成的 png/csv/文本**持久化到产物库**（`artifacts` 表 + ARTIFACT_DIR 卷），
-  对话内即时预览 + **历史会话/产物库页可回看下载**
+- 产物：捕获 stdout/stderr/退出码；支持 **png/csv/txt/md/json/html/pdf/docx/pptx/xlsx** 收集
+  （文本明文、二进制 base64；≤2MB），**持久化到产物库**（`artifacts` 表 + ARTIFACT_DIR 卷），
+  对话内即时预览/下载 + **历史会话/产物库页可回看**
+- **pptx 自动转 pdf 预览**：作业完成后 worker 发现 .pptx 产物 → 用沙箱镜像内置 LibreOffice headless
+  （`soffice --entrypoint`，UserInstallation 置于 tmpfs）自动转同名 .pdf 一并返回（浏览器可网页预览 PPT 内容）。
+- 引导模型：Description 说明可生成 docx(试卷)/pptx(课件)/xlsx/pdf(pdf 中文用 reportlab
+  `UnicodeCIDFont('STSong-Light')`)，保存到当前工作目录即自动成为可下载产物。
 - **挂件式/自愈**：`execute_code` 可在运行时被动态摘除/恢复（`Registry.SetDisabled`）——
   无 CODEX_URL 启动即隐藏；app 每 15s 健康轮询 codex-worker，故障自动摘除、恢复自动再现；
   执行失败降级为提示文本不打断对话（安全底线：无沙箱绝不裸跑用户代码）
-- worker 稳定性：restart unless-stopped + healthcheck、并发信号量（默认 2、超限 429）、
-  60s 超时强杀、内存 512m/1cpu/pids 128、作业目录自动清理
+- worker 稳定性：restart unless-stopped + healthcheck、**全局并发信号量（默认 2；任务级隔离、无状态一次性容器，
+  用完即释放；无用户级限额/公平队列，超限 429——单人多开可占满，多人课堂可被抢先）**、
+  60s 超时强杀、内存 512m/1cpu/pids 128、作业目录自动清理；`GET /metrics/sys` 供监控（§4.6）
 
 **执行流程**（复用现有工具循环）：
 ```
@@ -227,9 +267,12 @@ version: 1.0.0
 **产物库与历史回看**：
 - 每次 execute_code 的产物自动持久化（`artifacts` 表记录 + ARTIFACT_DIR 磁盘文件，storageKey=id_filename），
   并关联 conversation/message
-- `/artifacts` 页：网格浏览、图片/文本预览弹窗、下载（`GET /v1/artifacts/{id}/raw`，鉴权字节流）、删除
-- 历史消息重新展示：assistant 消息存储携带产物摘要（messages.artifacts_json），
-  打开旧会话时前端按 id 拉取 raw 恢复图片/文件（同 /v1/artifacts 鉴权）
+- `/artifacts` 页：网格浏览、**图片缩放 / docx 网页渲染(mammoth) / pdf 内嵌查看 / 文本预览**、下载
+  （`GET /v1/artifacts/{id}/raw`，鉴权字节流；`?download=1` 附件下载）、删除
+- 历史消息重新展示：assistant 消息存储携带产物摘要（messages.artifacts_json），打开旧会话时前端按 id
+  拉取 raw 恢复图片/文件；产物卡片带 WPS/Office 风格类型图标（FileIcon）与常驻「⬇ 下载」
+- 流式收尾不闪失：tool_result 产物同步挂到本条 assistant 消息 → 流结束由 HistoryArtifacts 无缝接管
+  （图片即时 data-url，避免"闪一下就没了"——已修复）
 
 **安全边界（硬性）**：
 - 容器级隔离为第一道（不做黑名单拦截）；`--security-opt no-new-privileges` + 默认 seccomp/apparmor
@@ -248,7 +291,7 @@ version: 1.0.0
 
 ## 5. 数据模型（PostgreSQL）
 
-实现以迁移文件为准：`server/migrations/0001_init.sql`、`0002_library.sql`，启动时自动执行（幂等 `IF NOT EXISTS`）。
+实现以迁移文件为准：`server/migrations/0001_init.sql` ～ `0006_*.sql`，启动时自动执行（幂等 `IF NOT EXISTS`）。
 
 ```
 users(id, username unique, password_hash, display_name, role, created_at)
@@ -258,9 +301,14 @@ messages(id, conversation_id FK, role, content, model, usage_json, artifacts_jso
 documents(id, user_id FK, filename, ext, size_bytes, status, error, created_at)
 document_chunks(id, document_id FK, seq, content, created_at)  -- 关键词检索；预留向量列
 artifacts(id, user_id FK, conversation_id, message_id, skill, filename, mime, size_bytes, storage_key, created_at)  -- 产物库
+conversation_attachments(conv_id FK, doc_id FK, added_at, PK(conv_id,doc_id))  -- 消息级附件：会话↔文件关联(0006)
+metric_events(id, ts, kind(chat|tool|codex), mode, status, skill, prompt_tokens, completion_tokens, duration_ms)  -- 运行指标(0005)
 ```
 
-> 存储架构：`store.Store` 接口 + 两个实现：`memory.go`（无 DATABASE_URL 的开发回退，重启丢数据）与 `postgres.go`（生产）。审计 `skill_runs` 表为规划（M4）。
+> 迁移清单：0001 基础 · 0002 资料库(document_chunks) · 0003 产物库(artifacts) · 0004 历史消息产物(messages.artifacts_json) ·
+> 0005 运行指标(metric_events) · 0006 会话附件(conversation_attachments)。
+> 存储架构：`store.Store` 接口 + 两实现：`memory.go`（无 DATABASE_URL 开发回退，重启丢数据）与 `postgres.go`（生产）。
+> 会话删除：Postgres 经 `ON DELETE CASCADE` 解绑附件记录（文件保留于资料库）。
 
 ---
 
@@ -273,8 +321,9 @@ artifacts(id, user_id FK, conversation_id, message_id, skill, filename, mime, si
 | GET | `/v1/auth/me` | 当前用户 |
 | GET/POST | `/v1/conversations` | 列表 / 新建 |
 | GET/PATCH/DELETE | `/v1/conversations/{id}` | 详情 / 重命名 / 删除 |
-| GET | `/v1/conversations/{id}/messages` | 历史消息 |
-| POST | `/v1/chat` | SSE 流式对话（支持 `/命令`） |
+| GET | `/v1/conversations/{id}/messages` | 历史消息（含 artifacts 产物摘要） |
+| POST | `/v1/chat` | SSE 流式对话（支持 `/命令`、`attachments:[doc_id…]` 消息级附件） |
+| POST | `/v1/chat/attachments` | 消息级附件（multipart `files` 多文件，同步解析入库返回 doc_id） |
 | GET | `/v1/skills` | `{skills:[doc|primitive], commands:[...]}` 供面板与 `/` 菜单 |
 | GET | `/v1/skills/{name}` | 文档型技能详情（含 SKILL.md 全文） |
 | PUT | `/v1/skills/{name}` | 新增/覆盖文档型技能（teacher/admin，热生效） |
@@ -285,6 +334,7 @@ artifacts(id, user_id FK, conversation_id, message_id, skill, filename, mime, si
 | GET | `/v1/artifacts` | 产物库列表 |
 | GET | `/v1/artifacts/{id}/raw` | 产物文件字节（鉴权；`?download=1` 触发下载） |
 | DELETE | `/v1/artifacts/{id}` | 删除产物（含磁盘文件） |
+| GET | `/v1/monitor/overview` · `/health` · `/conversations…` | 监控/审计（**仅 admin**，见 §4.6） |
 | GET | `/healthz` | 健康检查 |
 
 ### 6.2 SSE 事件（POST /v1/chat）
@@ -300,23 +350,32 @@ event: error       {code, message}
 
 ---
 
-## 7. 部署架构（阿里云，准备中）
+## 7. 部署架构（阿里云 · 已上线 https://www.ccnu.chat）
 
 ```
-阿里云 ECS (Ubuntu) ── Docker Compose
-├── go-app      单进程：API + 前端静态资源（单端口对外，无需 Nginx 转发 API）
-│               环境变量注入：DATABASE_URL / JWT_SECRET / OPENAI_* / PORT
-└── postgres:16 数据卷持久化（生产建议升迁云数据库 RDS PostgreSQL）
-Nginx/SLB 仅做 TLS 443 → go-app（可选）
-前端构建产物 web/dist 打进镜像，由 Go 以 http.FileServer + SPA fallback 托管
+阿里云 ECS (2C2G/40G 系统盘) ── Docker Compose
+├── app        单进程：API + 前端静态资源（单端口 8080，Nginx TLS 443→8080）
+│              环境变量：DATABASE_URL / JWT_SECRET / OPENAI_* / CODEX_URL / PORT
+├── db         postgres:16（pgdata 卷；healthcheck）
+├── codex      codex-worker：沙箱执行 HTTP（docker.sock + 作业卷 + 宿主根只读 /host + LibreOffice 转换）
+└── codex-sandbox  profile 工具：ccnu-codex 沙箱镜像（仅构建）
+Nginx（自定义编译 /usr/local/nginx）443 ssl + http2；Let's Encrypt(acme.sh 自动续期)；
+client_max_body_size 35m；前端 web/dist 打进镜像由 Go 托管（SPA fallback）
 ```
 
 构建与运行文件（仓库根）：
 - `Dockerfile`：多阶段（node 构建 web → go 构建 server → alpine 运行）
-- `docker-compose.yml`：app + postgres 编排
-- `server/.env.example`：配置模板（生产用环境变量覆盖）
+- `Dockerfile.codex`：`sandbox`（Python+LibreOffice 执行环境）与 `worker`（Go + docker CLI）双 target
+- `docker-compose.yml`：app + postgres + codex（含 `logging: json-file 10m×3` 日志限容；卷 pgdata/skills/uploads/artifacts）
+- `deploy/`：部署脚本、nginx 模板、**cleanup_docker.sh**（部署后回收 dangling 镜像/build 缓存/退出容器——
+  勿用 `system prune -a`，曾误删在用沙箱镜像）
 
-上线前清单见 §9 M4。
+**磁盘与运维注意（踩坑实录）**：40G 系统盘易被"多次 `--build` 的旧镜像层 + buildkit 缓存 + 崩溃循环日志"打满
+（曾致 Postgres 无法扩展文件、服务反复重启）。缓解：
+① 每次部署后执行 `bash deploy/cleanup_docker.sh`（或 crontab 每日）；
+② compose 日志限容（json-file 10m×3）防崩溃日志吃盘；
+③ 监控页宿主磁盘使用率 >80% 红警（见 §4.6）；
+④ 沙箱镜像约 1.2GB，镜像重建是磁盘与时间大户。
 
 ---
 
@@ -327,26 +386,25 @@ sfh_workplace/（= ccnu_lesson_agent）
 ├── Agent.md                # 本文档
 ├── README.md               # 快速开始 / API 摘要
 ├── Dockerfile / Dockerfile.codex   # app / 沙箱+worker 构建
-├── docker-compose.yml      # app + postgres + codex + 卷（pgdata/skills/uploads/artifacts）
-├── deploy/                 # 阿里云部署脚本 / nginx 模板 / 导出与验证脚本
+├── docker-compose.yml      # app + postgres + codex + 日志限容 + 卷
+├── deploy/                 # 部署脚本 / nginx 模板 / cleanup_docker.sh(磁盘回收) / 验证脚本
 ├── web/                    # React 19 + Vite + TS
-│   └── src/{pages(chat,skills,library,artifacts,login,register),api,store,types.ts,index.css}
+│   └── src/{pages(chat,skills,library,artifacts,login,register,monitor),components(PasswordField,FileIcon,HistoryArtifacts),api,store,lib,types.ts,index.css}
 └── server/                 # Go 1.27
-    ├── cmd/api/main.go     # 入口：配置/存储选择/SKILL 加载/沙箱健康轮询/静态托管
-    ├── cmd/codex/main.go   # codex-worker：沙箱执行 HTTP 服务（挂 docker.sock）
+    ├── cmd/api/main.go     # 入口：配置/存储/SKILL 加载/沙箱健康轮询/静态托管
+    ├── cmd/codex/main.go   # codex-worker（+sysmetrics_linux/other.go：/metrics/sys 宿主指标）
     ├── internal/
-    │   ├── agent/          # 工具循环 + /命令 + ask 中断 + 产物旁路
+    │   ├── agent/          # 工具循环 + /命令 + ask 中断 + 产物旁路 + SystemPrompt(附件规则)
     │   ├── auth/           # JWT/PBKDF2/注册登录刷新 + requireRole
-    │   ├── codex/          # 沙箱 Runner + HTTP Client（Health 探测）
-    │   ├── config/         # .env 加载 + 配置
-    │   ├── gateway/        # REST + SSE + CORS + 技能/资料库/产物库管理
-    │   ├── ingest/         # 文件解析（pdf/docx/xlsx/txt → 分块）
-    │   ├── model/          # OpenAI 兼容 / Demo Provider
-    │   ├── skill/          # Skill v2：平台原语 + SKILL.md 文档技能（doc.go/Loader/execute_code）
-    │   └── store/          # Store 接口 + memory + postgres（documents/chunks/artifacts）
+    │   ├── codex/          # 沙箱 Runner(含 pptx→pdf 转换) + HTTP Client(Health/SysMetrics)
+    │   ├── config/ ingest/ model/     # 配置 / 文件解析 / LLM Provider
+    │   ├── gateway/        # REST+SSE：conv/library/artifact/skill/chat(含附件注入)/
+    │   │                   #   chat_attachments(上传+多轮检索) / monitor_handlers(监控+审计+导出)
+    │   ├── skill/          # 平台原语 + SKILL.md 文档技能 + execute_code
+    │   └── store/          # Store 接口 + memory + postgres（含 metric/conversation_attachments）
     ├── skills/             # ★ SKILL.md 文档技能目录（运行时热加载）
-    ├── migrations/         # SQL 迁移（0001 基础 + 0002 资料库 + 0003 产物库）
-    ├── .env(.example)      # 本地配置（不提交 .env）
+    ├── migrations/         # SQL 迁移 0001~0006
+    ├── .env(.example)
     └── go.mod
 ```
 
@@ -365,7 +423,11 @@ sfh_workplace/（= ccnu_lesson_agent）
 | **M3 教育业务** | 课程/班级/角色权限；answer_grader、lesson_plan 等 Skill；学情统计；教师端 | ⛔ 未开始 |
 | **M5 代码沙箱** | execute_code 平台原语：Docker 一次性容器（codex-worker 服务、禁网、限额、超时、产物收集）；文件/资料库传沙箱处理（OCR/复杂计算/绘图）；对话卡片图表展示 | ✅ 完成 |
 | **M5.1 产物库** | 产物持久化（artifacts 表 + 磁盘卷）；`/artifacts` 页网格浏览/预览/下载/删除；历史消息产物回看 | ✅ 完成 |
-| **M4 上线** | Postgres（完成）；Docker + compose + 阿里云 ECS 部署（完成，https://www.ccnu.chat 在线）；限流、审计(skill_runs)、监控 | 🔄 大部分完成 |
+| **M5.2 文档产物** | 沙箱生成 docx/pptx/xlsx/pdf（python-pptx/reportlab+NotoCJK）；LibreOffice 自动 pptx→pdf 网页预览；产物 WPS 风格图标 | ✅ 完成 |
+| **UI 华师主题** | 浅色学术 UI（华师蓝/金辅/宋体标题）；登录双栏品牌版；会话分组；产物卡片；密码显隐 | ✅ 完成 |
+| **消息级附件** | 对话 📎/拖拽上传多文件同步解析；首轮全文注入 + 会话级多轮记忆检索（conversation_attachments） | ✅ 完成 |
+| **监控/审计** | `/monitor`（admin）：Agent 指标+宿主/容器+PG+磁盘告警；全站对话审计与 zip/单会话导出 | ✅ 完成 |
+| **M4 上线** | Postgres + Docker + 阿里云 ECS（https://www.ccnu.chat）；TLS；磁盘清理与日志限容 | ✅ 完成（在线运行） |
 
 分支约定：`master` 稳定分支仅合入已验收版本；日常开发在 `develop`。
 
@@ -375,19 +437,24 @@ sfh_workplace/（= ccnu_lesson_agent）
 
 **已定**：
 - ✅ 模型：OpenAI 架构 Chat Completions；生产 DeepSeek（www.ccnu.chat）。
-- ✅ 账号：自研 JWT（PBKDF2-SHA256，refresh 轮换），不接 SSO。
+- ✅ 账号：自研 JWT（PBKDF2-SHA256，refresh 轮换），不接 SSO；密码框默认隐藏可切换（登录/注册）。
 - ✅ Skill：双层（平台原语 Go + 文档型 SKILL.md）；模型自觉 / `/命令` / 缺参 ASK 澄清。
-- ✅ 代码沙箱：Docker 一次性容器 + codex-worker；execute_code 挂件式（无沙箱自动隐藏并降级，其余能力不受影响）；默认禁网；产物持久化入库入盘（产物库 `/artifacts` + 历史消息回看）。
-- ✅ 资料库：用户级文件知识库（上传解析 → 分块 → 关键词检索 → 引用注入）。
-- ✅ 存储/部署：Postgres 权威源；Docker Compose + Go 单进程托管前端；阿里云 ECS + Nginx TLS。
+- ✅ 代码沙箱：Docker 一次性容器 + codex-worker；execute_code 挂件式；默认禁网；产物持久化；
+  支持 docx/pptx/xlsx/pdf 生成（LibreOffice pptx→pdf 预览）；并发=全局 2（任务级隔离、无用户级公平队列）。
+- ✅ 资料库：用户级文件知识库（上传解析 → 分块 → 关键词检索 → 引用注入）；**消息级附件复用同一解析与库**。
+- ✅ 附件多轮记忆：会话关联文件（conversation_attachments）；首轮全文注入、后续自动检索；强指令避免误触发 knowledge_retrieve。
+- ✅ 监控/审计（admin）：metric_events + worker /metrics/sys（宿主/容器/磁盘）+ PG 状态；对话审计与 zip 导出。
+- ✅ 运维：日志限容（json-file 10m×3）、cleanup_docker.sh 磁盘回收、监控磁盘 >80% 红警。
+- ✅ 存储/部署：Postgres 权威源；Docker Compose + Go 单进程托管前端；阿里云 ECS + Nginx TLS（已在线）。
 
 **待定 / 风险**：
 1. 对话模型型号与配额/限流策略。
 2. 内容安全：敏感词/低龄保护/输出审查（教育合规）。
 3. 主观题批改仅辅助，UI 需明示"仅供参考"。
-4. 课程资料版权边界；上传文件的存储与合规（现仅存解析文本，原文件可暂存 UPLOAD_DIR）。
-5. 关键词检索精度 → 向量化升级（文档已留接口）；扫描版 PDF 需 OCR（暂不支持）。
-6. TLS 已就绪（acme 自动续期）；日志监控/审计表待完善。
+4. 课程资料版权边界；上传文件的存储与合规（原文件存 UPLOAD_DIR）。
+5. 关键词检索精度 → 向量化升级（文档已留接口）；扫描版 PDF 需 OCR（沙箱具备，消息附件默认不做）。
+6. **磁盘扩容未做**：40G 系统盘靠清理维持（51%）；正式长期运行建议控制台扩容云盘或在实例内 growpart+resize2fs（需付费确认后执行）。
+7. **沙箱并发=2 无用户级限额**：课堂多人同时跑 execute_code 会被 429 抢先（任务级隔离、用完即还）；如需公平队列/每用户限流为后续增强。
 
 ---
 
