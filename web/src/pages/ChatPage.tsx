@@ -4,11 +4,13 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   deleteConversation,
+  downloadArtifact,
   listConversations,
   listMessages,
   listSkills,
   logout,
   renameConversation,
+  uploadChatAttachments,
   type CommandInfo,
   type ServerMessage,
   type ServerMessageArtifact,
@@ -16,6 +18,7 @@ import {
 import { streamChat } from '../api/sse'
 import { useAuth } from '../store/auth'
 import HistoryArtifacts from '../components/HistoryArtifacts'
+import FileIcon from '../components/FileIcon'
 import { MODE_LABELS, type Conversation, type Mode, type SSEEvent } from '../types'
 
 // 本地展示消息（含流式中占位）
@@ -29,6 +32,7 @@ interface DisplayMsg {
 
 // 一次工具调用（卡片展示）
 interface ToolArtifact {
+  id?: string
   name: string
   mime: string
   data?: string
@@ -47,10 +51,31 @@ interface PendingAsk {
   options?: string[]
 }
 
-const WELCOME_SUGGESTIONS = [
-  '用苏格拉底式提问帮我理解「导数」的概念',
-  '生成 5 道一元二次方程练习题',
-  '请讲解勾股定理的证明思路',
+const WELCOME_GUIDES = [
+  {
+    icon: '💬',
+    title: '苏格拉底式答疑',
+    desc: '让 AI 引导你理解概念，而非直接给答案',
+    prompt: '用苏格拉底式提问帮我理解「导数」的概念',
+  },
+  {
+    icon: '📝',
+    title: '练习与测评',
+    desc: '按难度出题、批改作答、诊断薄弱点',
+    prompt: '生成 5 道一元二次方程练习题',
+  },
+  {
+    icon: '📄',
+    title: '生成学习文件',
+    desc: '一键产出 docx 试卷 / pptx 课件 / 图表 / PDF',
+    prompt: '用 execute_code 生成一份三角函数教案 docx',
+  },
+  {
+    icon: '📚',
+    title: '资料库问答',
+    desc: '上传讲义后，AI 基于你的资料作答并标注出处',
+    prompt: '根据我的资料库讲一下勾股定理的证明思路',
+  },
 ]
 
 function uid(): string {
@@ -67,6 +92,39 @@ function toDisplay(m: ServerMessage): DisplayMsg {
   }
 }
 
+/** 会话按时间分组：今天 / 昨天 / 更早。 */
+interface ConvGroup {
+  label: string
+  items: Conversation[]
+}
+function groupByDay(list: Conversation[]): ConvGroup[] {
+  const now = new Date()
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const today = startOf(now)
+  const yesterday = today - 86400_000
+  const sorted = [...list].sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+  )
+  const groups: ConvGroup[] = [
+    { label: '今天', items: [] },
+    { label: '昨天', items: [] },
+    { label: '更早', items: [] },
+  ]
+  for (const c of sorted) {
+    const t = new Date(c.updated_at).getTime()
+    if (t >= today) groups[0].items.push(c)
+    else if (t >= yesterday) groups[1].items.push(c)
+    else groups[2].items.push(c)
+  }
+  return groups.filter((g) => g.items.length > 0)
+}
+
+const MODE_ICONS: Record<string, string> = {
+  companion: '🎓',
+  practice: '📝',
+  teacher: '🖊️',
+}
+
 export default function ChatPage() {
   const user = useAuth((s) => s.user)
   const accessToken = useAuth((s) => s.accessToken)
@@ -79,11 +137,15 @@ export default function ChatPage() {
   const [draftMode, setDraftMode] = useState<Mode>('companion')
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [dragActive, setDragActive] = useState(false)
   const [error, setError] = useState('')
   const [pendingAsk, setPendingAsk] = useState<PendingAsk | null>(null)
   const [slashMenu, setSlashMenu] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const activeConv = conversations.find((c) => c.id === activeId) ?? null
 
   // ---- 初始化 ----
@@ -129,25 +191,99 @@ export default function ChatPage() {
     setPendingAsk(null)
     setError('')
     setSending(false)
+    setPendingFiles([])
   }, [])
+
+  // ---- 附件选择 ----
+  function addFiles(list: FileList | File[]) {
+    const files = Array.from(list)
+    const ok: File[] = []
+    for (const f of files) {
+      if (pendingFiles.length + ok.length >= 5) {
+        setError('一次最多附加 5 个文件')
+        break
+      }
+      if (pendingFiles.some((p) => p.name === f.name && p.size === f.size)) continue
+      ok.push(f)
+    }
+    if (ok.length > 0) setPendingFiles((prev) => [...prev, ...ok])
+  }
+  function removeFile(name: string, size: number) {
+    setPendingFiles((prev) => prev.filter((f) => !(f.name === name && f.size === size)))
+  }
+
+  function fmtFileSize(n: number): string {
+    if (n < 1024) return `${n} B`
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+    return `${(n / 1024 / 1024).toFixed(1)} MB`
+  }
+  function mimeOf(name: string): string {
+    const ext = name.split('.').pop()?.toLowerCase() ?? ''
+    switch (ext) {
+      case 'pdf':
+        return 'application/pdf'
+      case 'docx':
+      case 'doc':
+        return 'application/msword'
+      case 'xlsx':
+      case 'xls':
+        return 'application/vnd.ms-excel'
+      case 'csv':
+        return 'text/csv'
+      default:
+        return 'text/plain'
+    }
+  }
 
   // ---- 发送 ----
   async function handleSend(rawContent?: string) {
     const content = (rawContent ?? input).trim()
-    if (!content || sending || !accessToken) return
+    if (sending || !accessToken) return
+    if (!content && pendingFiles.length === 0) return
+
+    // 上传消息级附件（多文件 → 解析入库 → doc_id）
+    let attachIds: string[] = []
+    const failed: string[] = []
+    if (pendingFiles.length > 0) {
+      setUploading(true)
+      try {
+        const results = await uploadChatAttachments(pendingFiles)
+        for (const r of results) {
+          if (r.status === 'ready' && r.doc_id) attachIds.push(r.doc_id)
+          else if (r.error) failed.push(`${r.filename}：${r.error}`)
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '附件上传失败')
+        setUploading(false)
+        return
+      } finally {
+        setUploading(false)
+      }
+    }
 
     setInput('')
     setSlashMenu(false)
     setError('')
     setSending(true)
     setToolSteps([])
-    // 学生回答问题（pendingAsk 存在时本轮是它的回答），发送后清除等待态
     setPendingAsk(null)
 
     const sendMode = activeConv ? activeConv.mode : draftMode
-    const userMsg: DisplayMsg = { id: uid(), role: 'user', content }
+    // 展示用内容：原文 + 附件标记（与本地 file chips 对应）
+    let display = content
+    if (attachIds.length > 0) {
+      const names = pendingFiles.filter((_, i) => failed.length === 0 || !failed.some((f) => f.startsWith(pendingFiles[i].name))).map((f) => f.name)
+      display = content ? `${content}` : content
+      if (names.length > 0) {
+        display = (display ? display + '\n\n' : '') + names.map((n) => `📎 ${n}`).join('\n')
+      }
+    }
+    const userMsg: DisplayMsg = { id: uid(), role: 'user', content: display }
     const botMsg: DisplayMsg = { id: uid(), role: 'assistant', content: '', pending: true }
     setMessages((prev) => [...prev, userMsg, botMsg])
+    setPendingFiles([])
+    setDragActive(false)
+    if (failed.length > 0) setError(`部分附件失败：${failed.join('；')}`)
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -175,14 +311,36 @@ export default function ChatPage() {
         } else if (ev.event === 'tool_result') {
           const name = String(data.name ?? '')
           const summary = String(data.summary ?? '执行完成')
-          const artifacts = Array.isArray(data.artifacts)
-            ? (data.artifacts as unknown[]).map((a) => a as ToolArtifact)
-            : undefined
+          const rawArts = Array.isArray(data.artifacts)
+            ? (data.artifacts as unknown[])
+            : []
+          const artifacts = rawArts.map((a) => a as ToolArtifact)
           setToolSteps((prev) =>
             prev.map((s) =>
               s.name === name && s.running ? { ...s, summary, running: false, artifacts } : s,
             ),
           )
+          // 产物同步挂到本条 assistant 消息：流结束后 tool-steps 卸载，
+          // 由 HistoryArtifacts（带 data 即时显示 + 服务器 blob 下载）无缝接管，避免"闪一下就没了"。
+          const persistent = artifacts.filter((a) => typeof a.id === 'string' && a.id)
+          if (persistent.length > 0) {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1]
+              if (!last || last.role !== 'assistant' || !last.pending) return prev
+              const known = new Set((last.artifacts ?? []).map((x) => x.id))
+              const fresh = persistent
+                .filter((a) => !known.has(a.id as string))
+                .map((a) => ({
+                  id: a.id as string,
+                  name: a.name,
+                  mime: a.mime,
+                  data: a.data,
+                }))
+              if (fresh.length === 0) return prev
+              const merged = [...(last.artifacts ?? []), ...fresh]
+              return [...prev.slice(0, -1), { ...last, artifacts: merged }]
+            })
+          }
         } else if (ev.event === 'ask') {
           const question = String(data.question ?? '')
           const options = Array.isArray(data.options)
@@ -212,6 +370,7 @@ export default function ChatPage() {
         conversationId: activeId ?? undefined,
         content,
         mode: sendMode,
+        attachments: attachIds.length > 0 ? attachIds : undefined,
         token: accessToken,
         signal: controller.signal,
         onEvent: handleEvent,
@@ -309,6 +468,13 @@ export default function ChatPage() {
       {/* 侧栏 */}
       <aside className="sidebar">
         <div className="sidebar-head">
+          <div className="brand-bar">
+            <div className="ccnu-emblem">华</div>
+            <div>
+              <div className="brand-bar-title">华中师范大学</div>
+              <div className="brand-bar-sub">教育版智能学伴</div>
+            </div>
+          </div>
           <button className="btn-new-chat" onClick={newChat}>
             <span className="plus">+</span> 新对话
           </button>
@@ -323,37 +489,53 @@ export default function ChatPage() {
           <Link to="/skills" className="side-nav-item">
             🧩 技能管理
           </Link>
+          {user?.role === 'admin' && (
+            <Link to="/monitor" className="side-nav-item">
+              🛰️ 监控中心
+            </Link>
+          )}
         </nav>
         <nav className="conv-list">
-          {conversations.map((c) => (
-            <div
-              key={c.id}
-              className={`conv-item ${c.id === activeId ? 'active' : ''}`}
-              onClick={() => void openConversation(c.id)}
-            >
-              <span className="conv-title">{c.title}</span>
-              <span className="conv-actions">
-                <button
-                  title="重命名"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void handleRename(c)
-                  }}
-                >
-                  ✎
-                </button>
-                <button
-                  title="删除"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void handleDelete(c)
-                  }}
-                >
-                  🗑
-                </button>
-              </span>
-            </div>
-          ))}
+          {(() => {
+            const groups = groupByDay(conversations)
+            return groups.map((g) =>
+              g.items.length === 0 ? null : (
+                <div key={g.label} className="conv-group">
+                  <div className="conv-group-label">{g.label}</div>
+                  {g.items.map((c) => (
+                    <div
+                      key={c.id}
+                      className={`conv-item ${c.id === activeId ? 'active' : ''}`}
+                      onClick={() => void openConversation(c.id)}
+                    >
+                      <span className="conv-avatar">{MODE_ICONS[c.mode] ?? '💬'}</span>
+                      <span className="conv-title">{c.title}</span>
+                      <span className="conv-actions">
+                        <button
+                          title="重命名"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleRename(c)
+                          }}
+                        >
+                          ✎
+                        </button>
+                        <button
+                          title="删除"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleDelete(c)
+                          }}
+                        >
+                          🗑
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ),
+            )
+          })()}
           {conversations.length === 0 && <div className="conv-empty">暂无历史会话</div>}
         </nav>
         <div className="sidebar-foot">
@@ -413,27 +595,71 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* 消息区 */}
-        <div className="messages">
+        {/* 消息区（支持拖拽附件） */}
+        <div
+          className={`messages ${dragActive ? 'drop-active' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault()
+            if (!dragActive) setDragActive(true)
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragActive(false)
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragActive(false)
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files)
+          }}
+        >
+          {dragActive && (
+            <div className="drop-overlay">
+              <div className="drop-overlay-inner">📎 松开以附加文件（pdf / docx / xlsx / txt / md / csv，≤5 个）</div>
+            </div>
+          )}
           {messages.length === 0 && !sending && (
             <div className="welcome">
-              <div className="welcome-logo">🎓</div>
-              <h2>教育版智能学伴</h2>
-              <p>多轮对话 · 流式输出 · 输入 <code>/</code> 主动唤起 Skill</p>
-              <div className="suggestions">
-                {WELCOME_SUGGESTIONS.map((s) => (
-                  <button key={s} className="suggestion" onClick={() => void handleSend(s)}>
-                    {s}
+              <div className="welcome-hero">
+                <div className="welcome-hero-emblem">
+                  <div className="ccnu-emblem lg">华</div>
+                </div>
+                <h2 className="ccnu-wordmark">华中师范大学 · 智能学伴</h2>
+                <p className="welcome-slogan">求实创新 · 立德树人</p>
+                <p className="welcome-sub">
+                  多轮对话 · 流式输出 · 输入 <code>/</code> 唤起 Skill · 生成可下载的学习文件
+                </p>
+              </div>
+              <div className="welcome-guides">
+                {WELCOME_GUIDES.map((g) => (
+                  <button
+                    key={g.title}
+                    className="guide-card"
+                    onClick={() => void handleSend(g.prompt)}
+                  >
+                    <span className="guide-icon">{g.icon}</span>
+                    <span className="guide-text">
+                      <span className="guide-title">{g.title}</span>
+                      <span className="guide-desc">{g.desc}</span>
+                    </span>
+                    <span className="guide-arrow">↗</span>
                   </button>
                 ))}
               </div>
+              <p className="welcome-tip">试试直接提问，或点击上方引导卡开始</p>
             </div>
           )}
           {messages.map((m, mi) => {
             const isStreamingBot = m.role === 'assistant' && m.pending
             return (
               <div key={m.id} className={`msg-row ${m.role}`}>
-                <div className="msg-avatar">{m.role === 'assistant' ? 'AI' : '你'}</div>
+                <div className="msg-avatar">
+                  {m.role === 'assistant' ? (
+                    <span className="avatar-ai">学</span>
+                  ) : (
+                    <span className="avatar-you">
+                      {(user?.display_name ?? user?.username ?? '我').slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                </div>
                 <div className="msg-bubble">
                   {m.role === 'assistant' ? (
                     <div className="markdown-body">
@@ -450,27 +676,42 @@ export default function ChatPage() {
                                 <div className="tool-artifacts">
                                   {t.artifacts.map((a, i) =>
                                     a.data && a.mime.startsWith('image/') ? (
-                                      <a
+                                      <div
                                         key={i}
                                         className="artifact-img-wrap"
-                                        href={`data:${a.mime};base64,${a.data}`}
-                                        download={a.name}
+                                        role="button"
+                                        tabIndex={0}
                                         title={`下载 ${a.name}`}
+                                        onClick={() => void downloadArtifact(a).catch(() => {})}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') void downloadArtifact(a).catch(() => {})
+                                        }}
                                       >
                                         <img
                                           className="artifact-img"
                                           src={`data:${a.mime};base64,${a.data}`}
                                           alt={a.name}
                                         />
-                                        <span className="artifact-name">📎 {a.name}</span>
-                                      </a>
+                                        <span className="artifact-name">
+                                          <FileIcon name={a.name} mime={a.mime} size={16} /> {a.name} ⬇
+                                        </span>
+                                      </div>
                                     ) : (
-                                      <span key={i} className="artifact-file">
-                                        📄 {a.name}
+                                      <button
+                                        key={i}
+                                        className="artifact-file"
+                                        title={`下载 ${a.name}`}
+                                        disabled={!a.id && !a.data}
+                                        onClick={() => void downloadArtifact(a).catch(() => {})}
+                                      >
+                                        <FileIcon name={a.name} mime={a.mime} size={16} />
+                                        {a.name}
                                         {a.data && a.mime === 'text/csv' && a.data.length < 2000
                                           ? `（${a.data.length} 字符）`
-                                          : ''}
-                                      </span>
+                                          : a.id
+                                            ? '（点击下载）'
+                                            : ''}
+                                      </button>
                                     ),
                                   )}
                                 </div>
@@ -530,25 +771,68 @@ export default function ChatPage() {
               </div>
             )}
             <div className="composer">
+              <div className="composer-btns">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  accept=".pdf,.docx,.doc,.xlsx,.xls,.txt,.md,.csv"
+                  onChange={(e) => {
+                    if (e.target.files) addFiles(e.target.files)
+                    e.target.value = ''
+                  }}
+                />
+                <button
+                  className="btn-attach"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="附加文件（pdf/docx/xlsx/txt/md/csv，可多选）"
+                  disabled={sending || uploading}
+                >
+                  📎
+                </button>
+              </div>
               <textarea
                 value={input}
                 onChange={(e) => onInputChange(e.target.value)}
                 onKeyDown={onKeyDown}
                 placeholder={
-                  pendingAsk ? '回答助手的问题…' : '输入消息… 输入 / 唤起 Skill，Enter 发送'
+                  pendingAsk ? '回答助手的问题…' : '输入消息… 输入 / 唤起 Skill，Enter 发送（可 📎 附加文件）'
                 }
                 rows={1}
               />
-              {sending ? (
+              {sending || uploading ? (
                 <button className="btn-stop" onClick={stopGenerating} title="停止生成">
                   ■
                 </button>
               ) : (
-                <button className="btn-send" onClick={() => void handleSend()} disabled={!input.trim()} title="发送">
+                <button
+                  className="btn-send"
+                  onClick={() => void handleSend()}
+                  disabled={!input.trim() && pendingFiles.length === 0}
+                  title="发送"
+                >
                   ➤
                 </button>
               )}
             </div>
+            {(pendingFiles.length > 0 || uploading) && (
+              <div className="attach-chips">
+                {pendingFiles.map((f) => (
+                  <span key={`${f.name}-${f.size}`} className="attach-chip">
+                    <FileIcon name={f.name} mime={mimeOf(f.name)} size={16} />
+                    <span className="attach-chip-name">{f.name}</span>
+                    <span className="attach-chip-size">{fmtFileSize(f.size)}</span>
+                    {!sending && !uploading && (
+                      <button className="attach-chip-x" onClick={() => removeFile(f.name, f.size)}>
+                        ✕
+                      </button>
+                    )}
+                  </span>
+                ))}
+                {uploading && <span className="attach-uploading">⏳ 解析上传中…</span>}
+              </div>
+            )}
           </div>
           <p className="composer-hint">学伴 AI 生成内容仅供参考，学习请以教材与老师讲解为准。</p>
         </div>

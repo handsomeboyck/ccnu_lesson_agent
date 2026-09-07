@@ -81,6 +81,53 @@ func (c *Client) Health() error {
 // Enabled 是否配置了 codex-worker。
 func (c *Client) Enabled() bool { return c != nil && c.baseURL != "" }
 
+// SysMetricsResponse worker 返回的系统概览（宿主 + 容器）。
+type SysMetricsResponse struct {
+	Host struct {
+		Hostname   string     `json:"hostname"`
+		LoadAvg    [3]float64 `json:"load_avg"`
+		MemTotalKB int64      `json:"mem_total_kb"`
+		MemAvailKB int64      `json:"mem_avail_kb"`
+		CPUCores   int        `json:"cpu_cores"`
+		DiskTotalKB int64     `json:"disk_total_kb"`
+		DiskFreeKB  int64     `json:"disk_free_kb"`
+		DiskUsePct  float64   `json:"disk_use_pct"`
+	} `json:"host"`
+	Containers []struct {
+		Name    string `json:"name"`
+		CPU     string `json:"cpu"`
+		Mem     string `json:"mem"`
+		MemPerc string `json:"mem_perc"`
+	} `json:"containers"`
+	UpSince time.Time `json:"up_since"`
+}
+
+// SysMetrics 拉取 worker 侧系统指标（监控页用；worker 不可用时返回错误）。
+func (c *Client) SysMetrics() (*SysMetricsResponse, error) {
+	if !c.Enabled() {
+		return nil, fmt.Errorf("codex not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/metrics/sys", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.hc.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("codex sys status %d", resp.StatusCode)
+	}
+	var out SysMetricsResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Exec 执行一次沙箱运行。
 func (c *Client) Exec(ctx context.Context, req ExecRequest) (*ExecResponse, error) {
 	if !c.Enabled() {

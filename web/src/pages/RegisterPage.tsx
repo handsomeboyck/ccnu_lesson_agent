@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { login, register } from '../api/client'
 import { useAuth } from '../store/auth'
+import PasswordField from '../components/PasswordField'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -40,9 +41,23 @@ export default function RegisterPage() {
 
   return (
     <div className="auth-page">
+      <aside className="auth-panel">
+        <div>
+          <div className="ccnu-emblem">华</div>
+          <div className="auth-panel-title">华中师范大学 · 智能学伴</div>
+          <div className="auth-panel-slogan">求实创新 · 立德树人</div>
+          <p className="auth-panel-desc">
+            面向师生的教育版 AI 学伴：多轮问答 · 生成教案与试卷 ·
+            文档分析与图表产出。以师范精神赋能教与学。
+          </p>
+        </div>
+        <div className="auth-panel-foot">Central China Normal University · CCNU AI</div>
+      </aside>
       <div className="auth-card">
-        <div className="auth-logo">🎓</div>
-        <h1>创建账号</h1>
+        <div className="ccnu-emblem">华</div>
+        <h1>
+          <span className="ccnu-wordmark">创建账号</span>
+        </h1>
         <p className="auth-sub">加入教育版智能学伴</p>
         <form onSubmit={onSubmit} className="auth-form">
           <label>
@@ -66,8 +81,7 @@ export default function RegisterPage() {
           </label>
           <label>
             密码
-            <input
-              type="password"
+            <PasswordField
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
@@ -78,8 +92,7 @@ export default function RegisterPage() {
           </label>
           <label>
             确认密码
-            <input
-              type="password"
+            <PasswordField
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               autoComplete="new-password"

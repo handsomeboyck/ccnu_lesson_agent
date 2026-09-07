@@ -27,7 +27,9 @@ type memoryStore struct {
 	messages     map[string][]*Message    // conversationID -> messages (有序)
 	documents    map[string]*Document     // id -> doc
 	docChunks    map[string][]*Chunk      // docID -> chunks
+	convAttach   map[string][]string      // convID -> docIDs（added 顺序）
 	artifacts    map[string]*Artifact     // id -> artifact
+	metrics      []*MetricEvent           // 运行指标（最近 72h 滚动）
 }
 
 // NewMemory 创建内存版 Store（M0 本地演示用，进程退出数据即失）。
@@ -40,6 +42,9 @@ func NewMemory() Store {
 		messages:     map[string][]*Message{},
 		documents:    map[string]*Document{},
 		docChunks:    map[string][]*Chunk{},
+		convAttach:   map[string][]string{},
+		artifacts:    map[string]*Artifact{},
+		metrics:      []*MetricEvent{},
 	}
 }
 
@@ -187,6 +192,7 @@ func (s *memoryStore) DeleteConversation(ctx context.Context, id, userID string)
 	}
 	delete(s.conversation, id)
 	delete(s.messages, id)
+	delete(s.convAttach, id)
 	return nil
 }
 
@@ -199,6 +205,44 @@ func (s *memoryStore) TouchConversation(ctx context.Context, id, userID string, 
 	}
 	c.UpdatedAt = at
 	return nil
+}
+
+func (s *memoryStore) ListAllConversations(ctx context.Context, limit int) ([]*ConvAudit, error) {
+	if limit <= 0 || limit > 2000 {
+		limit = 500
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*ConvAudit
+	for _, c := range s.conversation {
+		ca := ConvAudit{Conversation: *c}
+		if u := s.users[c.UserID]; u != nil {
+			ca.Username = u.Username
+			ca.DisplayName = u.DisplayName
+		}
+		cc := ca
+		out = append(out, &cc)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *memoryStore) GetConversationAdmin(ctx context.Context, id string) (*ConvAudit, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c := s.conversation[id]
+	if c == nil {
+		return nil, ErrNotFound
+	}
+	ca := ConvAudit{Conversation: *c}
+	if u := s.users[c.UserID]; u != nil {
+		ca.Username = u.Username
+		ca.DisplayName = u.DisplayName
+	}
+	return &ca, nil
 }
 
 // ---- messages ----
@@ -327,9 +371,16 @@ func (s *memoryStore) SearchChunks(ctx context.Context, userID, query string, to
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.searchChunksLocked(userID, "", keywords, topK), nil
+}
+
+func (s *memoryStore) searchChunksLocked(userID, docID string, keywords []string, topK int) []ChunkHit {
 	var hits []ChunkHit
 	for _, d := range s.documents {
 		if d.UserID != userID {
+			continue
+		}
+		if docID != "" && d.ID != docID {
 			continue
 		}
 		for _, c := range s.docChunks[d.ID] {
@@ -349,7 +400,67 @@ func (s *memoryStore) SearchChunks(ctx context.Context, userID, query string, to
 	if len(hits) > topK {
 		hits = hits[:topK]
 	}
-	return hits, nil
+	return hits
+}
+
+func (s *memoryStore) GetDocumentsByIDs(ctx context.Context, userID string, ids []string) ([]*Document, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	set := map[string]bool{}
+	for _, id := range ids {
+		set[id] = true
+	}
+	var out []*Document
+	for _, d := range s.documents {
+		if d.UserID == userID && set[d.ID] {
+			clone := *d
+			out = append(out, &clone)
+		}
+	}
+	return out, nil
+}
+
+func (s *memoryStore) GetDocumentChunks(ctx context.Context, docID string) ([]Chunk, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cs := s.docChunks[docID]
+	out := make([]Chunk, 0, len(cs))
+	for _, c := range cs {
+		if c != nil {
+			out = append(out, *c)
+		}
+	}
+	return out, nil
+}
+
+func (s *memoryStore) ListConversationAttachments(ctx context.Context, convID string) ([]*Document, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ids := s.convAttach[convID]
+	var out []*Document
+	for _, id := range ids {
+		if d := s.documents[id]; d != nil {
+			clone := *d
+			out = append(out, &clone)
+		}
+	}
+	return out, nil
+}
+
+func (s *memoryStore) LinkConversationDocuments(ctx context.Context, convID string, docIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing := map[string]bool{}
+	for _, id := range s.convAttach[convID] {
+		existing[id] = true
+	}
+	for _, id := range docIDs {
+		if !existing[id] {
+			s.convAttach[convID] = append(s.convAttach[convID], id)
+			existing[id] = true
+		}
+	}
+	return nil
 }
 
 // ---- artifacts ----
@@ -418,4 +529,131 @@ func (s *memoryStore) UpdateArtifactStorageKey(ctx context.Context, id, userID, 
 	}
 	a.StorageKey = storageKey
 	return nil
+}
+
+// ---- metrics（运行监控，内存滚动保留最近 72h）----
+
+func (s *memoryStore) AppendMetric(ctx context.Context, ev *MetricEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clone := *ev
+	s.metrics = append(s.metrics, &clone)
+	// 截断超出 72h 的旧事件，控制内存
+	cut := time.Now().Add(-72 * time.Hour)
+	keep := 0
+	for keep < len(s.metrics) && s.metrics[keep].At.Before(cut) {
+		keep++
+	}
+	if keep > 0 {
+		s.metrics = append([]*MetricEvent(nil), s.metrics[keep:]...)
+	}
+	return nil
+}
+
+func (s *memoryStore) MetricSummary(ctx context.Context, hours int) (*MetricSummary, error) {
+	if hours <= 0 || hours > 168 {
+		hours = 24
+	}
+	s.mu.RLock()
+	evs := append([]*MetricEvent(nil), s.metrics...)
+	s.mu.RUnlock()
+	acc := map[int64]*HourBucket{}
+	nowH := time.Now().Truncate(time.Hour)
+	cut := nowH.Add(-time.Duration(hours) * time.Hour)
+	for _, ev := range evs {
+		if ev.At.Before(cut) {
+			continue
+		}
+		h := ev.At.Truncate(time.Hour)
+		b := acc[h.Unix()]
+		if b == nil {
+			b = &HourBucket{Hour: h}
+			acc[h.Unix()] = b
+		}
+		switch ev.Kind {
+		case "chat":
+			b.Chats++
+			switch ev.Status {
+			case "ok":
+				b.ChatOK++
+			case "error":
+				b.ChatErr++
+			case "ask":
+				b.Asks++
+			}
+			b.PromptTok += ev.PromptTokens
+			b.Completion += ev.CompletionTokens
+			b.DurationSum += ev.DurationMs
+		case "tool":
+			b.ToolCalls++
+		case "codex":
+			b.CodexRuns++
+			if ev.Status == "ok" {
+				b.CodexOK++
+			}
+		}
+	}
+	sum := &MetricSummary{WindowHours: hours}
+	for i := hours - 1; i >= 0; i-- {
+		h := nowH.Add(-time.Duration(i) * time.Hour)
+		if b, ok := acc[h.Unix()]; ok {
+			sum.Buckets = append(sum.Buckets, *b)
+		} else {
+			sum.Buckets = append(sum.Buckets, HourBucket{Hour: h})
+		}
+	}
+	return sum, nil
+}
+
+func (s *memoryStore) MetricDistribution(ctx context.Context, hours int) (*MetricDistribution, error) {
+	if hours <= 0 || hours > 168 {
+		hours = 24
+	}
+	cut := time.Now().Add(-time.Duration(hours) * time.Hour)
+	s.mu.RLock()
+	evs := append([]*MetricEvent(nil), s.metrics...)
+	s.mu.RUnlock()
+	out := &MetricDistribution{ByMode: map[string]int64{}, BySkill: map[string]int64{}}
+	for _, ev := range evs {
+		if ev.At.Before(cut) {
+			continue
+		}
+		switch ev.Kind {
+		case "chat":
+			mode := ev.Mode
+			if mode == "" {
+				mode = "none"
+			}
+			out.ByMode[mode]++
+		case "tool", "codex":
+			sk := ev.Skill
+			if sk == "" {
+				sk = "none"
+			}
+			out.BySkill[sk]++
+		}
+	}
+	return out, nil
+}
+
+func (s *memoryStore) RecentLatencies(ctx context.Context, hours int, limit int) ([]int64, error) {
+	if hours <= 0 || hours > 168 {
+		hours = 24
+	}
+	if limit <= 0 || limit > 5000 {
+		limit = 500
+	}
+	cut := time.Now().Add(-time.Duration(hours) * time.Hour)
+	s.mu.RLock()
+	evs := append([]*MetricEvent(nil), s.metrics...)
+	s.mu.RUnlock()
+	var lat []int64
+	for i := len(evs) - 1; i >= 0 && len(lat) < limit; i-- {
+		ev := evs[i]
+		if ev.Kind != "chat" || ev.At.Before(cut) {
+			continue
+		}
+		lat = append(lat, ev.DurationMs)
+	}
+	return lat, nil
 }

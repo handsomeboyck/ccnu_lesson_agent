@@ -121,6 +121,58 @@ func (r *Runner) Run(ctx context.Context, job *Job) (*ExecResponse, error) {
 	return resp, nil
 }
 
+// ConvertOfficeToPDF 在作业产物里查找 .pptx，用沙箱镜像内置 LibreOffice headless
+// 转出同名 .pdf（供前端网页预览），并合并回产物列表。转换失败不影响原产物。
+func (r *Runner) ConvertOfficeToPDF(ctx context.Context, job *Job, arts []Artifact) []Artifact {
+	type pdfPlan struct {
+		pptx string // out 目录内 pptx 相对名
+		pdf  string
+	}
+	var plans []pdfPlan
+	for _, a := range arts {
+		if strings.ToLower(filepath.Ext(a.Name)) != ".pptx" {
+			continue
+		}
+		pdfName := strings.TrimSuffix(a.Name, filepath.Ext(a.Name)) + ".pdf"
+		if _, err := os.Stat(filepath.Join(job.OutDir, pdfName)); err == nil {
+			continue // 已有同名 pdf（代码里自己转了）
+		}
+		plans = append(plans, pdfPlan{pptx: a.Name, pdf: pdfName})
+	}
+	if len(plans) == 0 {
+		return arts
+	}
+	for _, p := range plans {
+		convCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		containerName := "codex_conv_" + job.ID
+		// 复用沙箱镜像（含 LibreOffice）；--entrypoint soffice 覆盖 python
+		cmd := exec.CommandContext(convCtx, "docker",
+			"run", "--rm", "--name", containerName,
+			"--network=none",
+			"--memory=1g", "--cpus=1",
+			"--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=128m",
+			"--user", "1000:1000",
+			"--security-opt", "no-new-privileges",
+			"-e", "HOME=/tmp",
+			"-v", job.OutDir+":/out:rw",
+			"-w", "/out",
+			"--entrypoint", "soffice",
+			r.SandboxImage,
+			"--headless", "--norestore", "--nologo",
+			"-env:UserInstallation=file:///tmp/lo_profile",
+			"--convert-to", "pdf", "--outdir", "/out", p.pptx,
+		)
+		var stderr limitedBuffer
+		stderr.limit = 8 << 10
+		cmd.Stderr = &stderr
+		_ = cmd.Run()
+		cancel()
+		_ = exec.CommandContext(context.Background(), "docker", "rm", "-f", containerName).Run()
+		// 成功与否不强求：若 /out 出现同名 pdf 则 collectArtifacts 自会捕获
+	}
+	return collectArtifacts(job.OutDir)
+}
+
 func collectArtifacts(outDir string) []Artifact {
 	var out []Artifact
 	_ = filepath.WalkDir(outDir, func(p string, d os.DirEntry, err error) error {
@@ -138,24 +190,34 @@ func collectArtifacts(outDir string) []Artifact {
 		switch strings.ToLower(filepath.Ext(d.Name())) {
 		case ".png":
 			a.Mime = "image/png"
+		case ".jpg", ".jpeg":
+			a.Mime = "image/jpeg"
+		case ".gif":
+			a.Mime = "image/gif"
 		case ".csv":
 			a.Mime = "text/csv"
-		case ".txt", ".md", ".json", ".html":
+		case ".txt", ".md", ".json", ".html", ".py", ".log":
 			a.Mime = "text/plain"
 		case ".pdf":
 			a.Mime = "application/pdf"
+		case ".docx":
+			a.Mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+		case ".pptx":
+			a.Mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+		case ".xlsx":
+			a.Mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 		default:
-			return nil // 只保留可展示类型
+			return nil // 只保留可展示/可下载类型
 		}
 		raw, err := os.ReadFile(p)
 		if err != nil {
 			return nil
 		}
-		// 图片 base64 内嵌展示；文本原样
-		if strings.HasPrefix(a.Mime, "image/") {
-			a.Data = base64.StdEncoding.EncodeToString(raw)
-		} else {
+		// 文本原样（前端/模型预览）；图片与二进制文档 base64 内嵌传输
+		if strings.HasPrefix(a.Mime, "text/") {
 			a.Data = string(raw)
+		} else {
+			a.Data = base64.StdEncoding.EncodeToString(raw)
 		}
 		out = append(out, a)
 		return nil

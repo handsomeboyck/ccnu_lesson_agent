@@ -67,7 +67,8 @@ func SystemPrompt(mode string, skills []string) string {
 	sb.WriteString("\n\n行为准则：")
 	sb.WriteString("\n- 当任务信息不足（如题目数量/难度/范围不明确，或需引导学生思考）时，调用 ask_user 提出一个问题并等待学生回答，不要臆测参数继续。")
 	sb.WriteString("\n- 学生回答了你上轮提问后，继续完成原任务（如接着出题）。")
-	sb.WriteString("\n- 用户问题涉及“我上传/我的资料/讲义/文档/课件/根据这份文件/这份资料”等表述时，应先调用 knowledge_retrieve 检索其资料库，再基于命中内容作答并标注 [出处：文件名]；资料库为空或未命中时如实说明。")
+	sb.WriteString("\n- 若用户本轮消息里已附带文件内容（形如“【已附加文件：…】/【系统提示：…上传了文件…】”的段落），说明文件全文/相关片段已直接给到，**直接阅读并使用**，不要再调用 knowledge_retrieve，除非用户明确要求检索整个资料库。")
+	sb.WriteString("\n- 仅当用户问题提及“我上传的资料/讲义/课件/根据这份文件/这份资料”而本消息并没有附带文件内容时，才应调用 knowledge_retrieve 检索其资料库，再基于命中内容作答并标注 [出处：文件名]；资料库为空或未命中时如实说明。")
 	if len(skills) > 0 {
 		sb.WriteString("\n\n你有以下可调用的 Skill（通过 function calling）：\n- " + strings.Join(skills, "\n- "))
 		sb.WriteString("\n当用户请求匹配某个 Skill 的职责时应调用它，拿到结果后组织成自然、友好的回复。")

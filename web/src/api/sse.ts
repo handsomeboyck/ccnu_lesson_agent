@@ -9,6 +9,7 @@ export interface ChatStreamParams {
   content: string
   mode?: string
   courseId?: string
+  attachments?: string[] // 资料库文档 id（消息级附件）
   token: string
   signal: AbortSignal
   onEvent: (ev: SSEEvent) => void
@@ -56,6 +57,7 @@ export async function streamChat(params: ChatStreamParams): Promise<void> {
       content: params.content,
       mode: params.mode ?? 'companion',
       course_id: params.courseId ?? '',
+      attachments: params.attachments ?? [],
     }),
     signal: params.signal,
   })

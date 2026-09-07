@@ -13,13 +13,16 @@ RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
     fi
 
 # tesseract OCR（含简体中文）用于扫描件解析
+# LibreOffice headless：docx/pptx/xlsx → pdf（前端网页预览）；Noto CJK 中文字体供 PDF/Office 渲染
 RUN apt-get update && apt-get install -y --no-install-recommends \
       tesseract-ocr tesseract-ocr-chi-sim libgl1 libglib2.0-0 \
+      libreoffice-impress fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # 解析与科学计算常用库（国内源加速）
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
-      pdfplumber PyMuPDF python-docx openpyxl \
+      pdfplumber PyMuPDF python-docx python-pptx openpyxl \
+      reportlab fpdf2 \
       pandas numpy matplotlib Pillow pytesseract
 
 # 非 root 沙箱用户（uid 1000 与 docker --user 一致）

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
@@ -25,8 +26,10 @@ type executeCode struct{}
 func (s *executeCode) Name() string { return "execute_code" }
 func (s *executeCode) Description() string {
 	return "在 Python 代码沙箱中执行一段代码并返回运行结果。可处理：复杂文档解析（含老式 .doc、扫描件可用 pytesseract OCR）、" +
-		"表格处理、数据分析、matplotlib 绘图等 Go 能力外的工作。当用户请求超出内置解析能力（如 .doc、OCR、复杂计算/绘图）、" +
-		"或希望得到可复现的脚本化结果时调用。"
+		"表格处理、数据分析、matplotlib 绘图、生成 .docx/.pptx/.xlsx/.pdf 等文件。当用户请求超出内置解析能力（如 .doc、OCR、复杂计算/绘图）、" +
+		"或希望得到可下载的文件（如试卷 docx、课件 pptx、图表 png、表格 xlsx、报告 pdf）时调用。保存文件请写到当前工作目录（相对路径即可），" +
+		"文件名用英文/拼音避免编码问题；生成的 png/docx/pptx/xlsx/pdf/csv 等会被自动收集为用户可下载的产物。**生成 .pptx 后系统会自动转出同名 .pdf 供网页预览**。" +
+		"生成 PDF 可用 reportlab（中文用 UnicodeCIDFont('STSong-Light')）或 fpdf2；matplotlib 输出 pdf 亦可。"
 }
 func (s *executeCode) Modes() []string { return []string{} } // 全部模式
 
@@ -111,6 +114,7 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 	}
 
 	resp, err := env.Codex.Exec(ctx, req)
+	recordCodexRun(ctx, env, err, resp)
 	if err != nil {
 		// 沙箱不稳定：不打断对话，降级为明确提示（模型可改用其它能力）。
 		return &Result{
@@ -145,25 +149,28 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 		sb.WriteString("（无输出，代码正常结束）\n")
 	}
 
-	// 产物：落盘到 ArtifactDir + 写 artifacts 表（可持久化浏览）；再转 data URL 供对话内预览
+	// 产物：落盘到 ArtifactDir + 写 artifacts 表（可持久化浏览）；再转预览用 data（仅图片/短文本）
 	var views []ArtifactView
 	if len(resp.Artifacts) > 0 {
 		names := make([]string, 0, len(resp.Artifacts))
 		for _, a := range resp.Artifacts {
 			names = append(names, a.Name)
 			v := ArtifactView{Name: a.Name, Mime: a.Mime}
-			// 1) 持久化（配置了 ArtifactDir 且有数据时）
+			// 1) 持久化（配置了 ArtifactDir 时有数据）
 			if id := persistArtifact(ctx, env, a); id != "" {
 				v.ID = id
 			}
-			// 2) 对话内即时预览 data
+			// 2) 对话内即时预览 data：图片给 base64；文本给明文；二进制文档不给
+			//   （数据已在服务器落盘，前端经 /raw 下载/查看，避免 SSE 膨胀）
 			switch {
 			case strings.HasPrefix(a.Mime, "image/"):
 				if len(a.Data) > 0 && len(a.Data) <= 4<<20 { // base64 ≤ 4MB 可展示
 					v.Data = a.Data
 				}
-			case len(a.Data) > 0 && len(a.Data) <= 300<<10:
-				v.Data = a.Data
+			case strings.HasPrefix(a.Mime, "text/"):
+				if len(a.Data) > 0 && len(a.Data) <= 300<<10 {
+					v.Data = a.Data
+				}
 			}
 			views = append(views, v)
 		}
@@ -177,13 +184,37 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 	}, nil
 }
 
+// recordCodexRun 记录一次沙箱执行指标（监控用；失败静默）。
+func recordCodexRun(ctx context.Context, env *Env, err error, resp *codex.ExecResponse) {
+	if env == nil || env.Store == nil {
+		return
+	}
+	ev := &store.MetricEvent{Kind: "codex", Status: "ok", Skill: "execute_code", At: time.Now()}
+	if err != nil || resp == nil {
+		ev.Status = "error"
+	} else if resp.Error != "" || resp.ExitCode != 0 || resp.TimedOut {
+		ev.Status = "error"
+	}
+	_ = env.Store.AppendMetric(ctx, ev)
+}
+
 // persistArtifact 把沙箱产物写入 ArtifactDir + artifacts 表，返回新 id（失败返回空）。
 func persistArtifact(ctx context.Context, env *Env, a codex.Artifact) string {
 	if env == nil || env.ArtifactDir == "" || env.Store == nil {
 		return ""
 	}
-	raw, err := base64.StdEncoding.DecodeString(a.Data)
-	if err != nil || len(raw) == 0 {
+	// 文本原样写入；图片/二进制文档 base64 解码后写入
+	var raw []byte
+	if strings.HasPrefix(a.Mime, "text/") {
+		raw = []byte(a.Data)
+	} else {
+		dec, err := base64.StdEncoding.DecodeString(a.Data)
+		if err != nil {
+			return ""
+		}
+		raw = dec
+	}
+	if len(raw) == 0 {
 		return ""
 	}
 	name := sanitizeName(a.Name)

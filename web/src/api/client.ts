@@ -122,6 +122,38 @@ export function listConversations(): Promise<{ conversations: Conversation[] }> 
   return request('/v1/conversations', { auth: true })
 }
 
+export interface ChatAttachResult {
+  doc_id: string
+  filename: string
+  status: string
+  error?: string
+}
+
+/** 消息级附件上传：多文件 multipart，同步解析入资料库，返回 doc_id 列表。 */
+export async function uploadChatAttachments(files: File[]): Promise<ChatAttachResult[]> {
+  const { accessToken } = useAuth.getState()
+  if (!accessToken) throw new ApiError(401, 'unauthorized')
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  const res = await fetch(`${BASE}/v1/chat/attachments`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: fd,
+  })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const b = (await res.json()) as { error?: string }
+      if (b.error) msg = b.error
+    } catch {
+      // ignore
+    }
+    throw new ApiError(res.status, msg)
+  }
+  const body = (await res.json()) as { results: ChatAttachResult[] }
+  return body.results
+}
+
 export function createConversation(payload: { title?: string; mode?: string; course_id?: string }): Promise<Conversation> {
   return request('/v1/conversations', { method: 'POST', body: payload, auth: true })
 }
@@ -138,6 +170,8 @@ export interface ServerMessageArtifact {
   id: string
   name: string
   mime: string
+  /** 实时流式（SSE tool_result）额外携带 base64 data；历史回看接口不含此字段。 */
+  data?: string
 }
 export interface ServerMessage {
   id: string
@@ -266,4 +300,161 @@ export async function fetchArtifact(id: string, download = false): Promise<Blob>
 
 export function deleteArtifact(id: string): Promise<void> {
   return request(`/v1/artifacts/${id}`, { method: 'DELETE', auth: true })
+}
+
+// ---- 监控（仅 admin） ----
+
+export interface MonitorBucket {
+  hour: string
+  chats: number
+  chat_ok: number
+  chat_err: number
+  prompt_tok: number
+  completion: number
+  duration_sum: number
+  tool_calls: number
+  codex_runs: number
+  codex_ok: number
+  asks: number
+}
+
+export interface MonitorOverview {
+  generated_at: string
+  uptime_sec: number
+  window_hours: number
+  agent: {
+    chats: number
+    chat_ok: number
+    chat_err: number
+    asks: number
+    tools: number
+    codex_runs: number
+    codex_ok: number
+    prompt_tokens: number
+    completion_tokens: number
+    duration_sum_ms: number
+    avg_latency_ms: number
+    p50_ms: number
+    p95_ms: number
+    by_mode: Record<string, number>
+    by_skill: Record<string, number>
+    buckets: MonitorBucket[]
+  }
+  db?: {
+    available: boolean
+    pg_version?: string
+    db_name?: string
+    connections?: number
+    max_conn?: number
+    db_bytes?: number
+    cache_hit?: number
+    commit?: number
+    rollback?: number
+    uptime_sec?: number
+    error?: string
+  }
+  system?: {
+    available: boolean
+    error?: string
+    host?: {
+      hostname: string
+      load_avg: number[]
+      mem_total_kb: number
+      mem_avail_kb: number
+      cpu_cores: number
+      disk_total_kb?: number
+      disk_free_kb?: number
+      disk_use_pct?: number
+    }
+    containers?: { name: string; cpu: string; mem: string; mem_perc: string }[]
+  }
+}
+
+export function fetchMonitorOverview(): Promise<MonitorOverview> {
+  return request('/v1/monitor/overview', { auth: true })
+}
+
+// ---- 对话审计（仅 admin） ----
+
+export interface AuditConv {
+  id: string
+  user_id: string
+  username: string
+  display_name: string
+  title: string
+  mode: string
+  created_at: string
+  updated_at: string
+}
+export interface AuditMsg {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  artifacts?: { id: string; name: string; mime: string }[]
+  created_at: string
+}
+
+export function listAuditConversations(): Promise<{ conversations: AuditConv[]; total: number }> {
+  return request('/v1/monitor/conversations', { auth: true })
+}
+export function fetchAuditTranscript(id: string): Promise<{ conversation: AuditConv; messages: AuditMsg[] }> {
+  return request(`/v1/monitor/conversations/${id}`, { auth: true })
+}
+/** 导出会话问答为 txt（鉴权拉 blob 后触发下载）。 */
+export async function exportAuditConversation(conv: AuditConv): Promise<void> {
+  const { accessToken } = useAuth.getState()
+  if (!accessToken) throw new ApiError(401, 'unauthorized')
+  const res = await fetch(`${BASE}/v1/monitor/conversations/${conv.id}/export`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`)
+  const blob = await res.blob()
+  const u = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = u
+  link.download = `${conv.username || 'user'}_${(conv.title || 'chat').slice(0, 30)}.txt`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(u), 5000)
+}
+
+/** 一键导出全部会话为 zip（按用户分文件夹 + manifest.csv）。 */
+export async function exportAllAudit(): Promise<void> {
+  const { accessToken } = useAuth.getState()
+  if (!accessToken) throw new ApiError(401, 'unauthorized')
+  const res = await fetch(`${BASE}/v1/monitor/conversations/export-all`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`)
+  const blob = await res.blob()
+  const u = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = u
+  const d = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  link.download = `ccnu_全部会话_${d}.zip`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(u), 5000)
+}
+
+/** 统一下载入口：优先从服务器按 id 取 blob（可靠下载）；无 id 时回退 data URL。 */
+export async function downloadArtifact(a: { id?: string; name: string; mime: string; data?: string }): Promise<void> {
+  let blob: Blob | null = null
+  if (a.id) {
+    blob = await fetchArtifact(a.id, true)
+  } else if (a.data) {
+    const res = await fetch(`data:${a.mime};base64,${a.data}`)
+    blob = res.ok ? await res.blob() : null
+  }
+  if (!blob) throw new ApiError(404, '产物不存在，无法下载')
+  const u = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = u
+  link.download = a.name
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(u), 5000)
 }

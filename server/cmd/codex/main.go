@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +38,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+	mux.HandleFunc("GET /metrics/sys", handleSysMetrics)
 
 	// 并发限制（默认 2 个并发沙箱，防雪崩）
 	concurrency := getenvInt("CODEX_CONCURRENCY", 2)
@@ -99,6 +102,12 @@ func handleExec(w http.ResponseWriter, r *http.Request, runner *codex.Runner, ho
 		return
 	}
 	resp, err := runner.Run(r.Context(), job)
+	// LibreOffice 把 pptx 转同名 pdf 供前端预览（失败不阻塞，pdf 未生成则仅保留 pptx）
+	if err == nil && resp != nil && len(resp.Artifacts) > 0 {
+		convCtx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+		resp.Artifacts = runner.ConvertOfficeToPDF(convCtx, job, resp.Artifacts)
+		cancel()
+	}
 	_ = os.RemoveAll(hostJobs + "/" + jobID) // 清理（产物已读入内存）
 	if err != nil {
 		writeErr(w, 500, "run: "+err.Error())
@@ -112,6 +121,123 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+// ---- 系统指标（宿主只读 + docker stats）----
+
+// HostSnapshot 宿主概览（经 /host 只读挂载读 /proc；未挂载则各项为空）。
+type HostSnapshot struct {
+	Hostname   string     `json:"hostname"`
+	LoadAvg    [3]float64 `json:"load_avg"`
+	MemTotalKB int64      `json:"mem_total_kb"`
+	MemAvailKB int64      `json:"mem_avail_kb"`
+	CPUCores   int        `json:"cpu_cores"`
+	DiskTotalKB int64     `json:"disk_total_kb"` // 宿主根文件系统（/host）总量
+	DiskFreeKB  int64     `json:"disk_free_kb"`  // 可用量（供 df -h 式展示）
+	DiskUsePct  float64   `json:"disk_use_pct"`  // 使用率 %
+}
+
+// ContainerStat 单个容器运行状态（docker stats 采样）。
+type ContainerStat struct {
+	Name    string `json:"name"`
+	CPU     string `json:"cpu"`
+	Mem     string `json:"mem"`
+	MemPerc string `json:"mem_perc"`
+}
+
+type SysMetrics struct {
+	Host       HostSnapshot     `json:"host"`
+	Containers []ContainerStat  `json:"containers"`
+	UpSince    time.Time        `json:"up_since"`
+}
+
+const hostRoot = "/host" // compose 以只读方式把宿主根挂到 worker 容器
+
+func handleSysMetrics(w http.ResponseWriter, r *http.Request) {
+	out := SysMetrics{UpSince: processStart}
+	if hostname, err := os.ReadFile(hostRoot + "/proc/sys/kernel/hostname"); err == nil {
+		out.Host.Hostname = strings.TrimSpace(string(hostname))
+	}
+	// loadavg
+	if b, err := os.ReadFile(hostRoot + "/proc/loadavg"); err == nil {
+		f := strings.Fields(string(b))
+		for i := 0; i < 3 && i < len(f); i++ {
+			v, _ := strconv.ParseFloat(f[i], 64)
+			out.Host.LoadAvg[i] = v
+		}
+	}
+	readMemInfo(&out.Host)
+	out.Host.CPUCores = readCPUCount()
+	readDiskUsage(&out.Host)
+	collectContainerStats(&out.Containers)
+	writeJSON(w, 200, out)
+}
+
+func readMemInfo(h *HostSnapshot) {
+	data, err := os.ReadFile(hostRoot + "/proc/meminfo")
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 {
+			continue
+		}
+		v, _ := strconv.ParseInt(f[1], 10, 64)
+		switch f[0] {
+		case "MemTotal:":
+			h.MemTotalKB = v
+		case "MemAvailable:":
+			h.MemAvailKB = v
+		}
+	}
+}
+
+func readCPUCount() int {
+	data, err := os.ReadFile(hostRoot + "/proc/cpuinfo")
+	if err != nil {
+		return 0
+	}
+	return strings.Count(string(data), "processor\t:")
+}
+
+// collectContainerStats 采样本 compose 项目内容器（docker stats --no-stream）。
+// 通过容器名前缀匹配：当前 compose 项目目录为 /opt/ccnu_lesson_agent（项目名同目录名）。
+func collectContainerStats(out *[]ContainerStat) {
+	// 1) 列出本项目容器名（name 前缀 ccnu_lesson_agent）
+	ps, err := exec.CommandContext(context.Background(), "docker",
+		"ps", "--filter", "name=ccnu_lesson_agent", "--format", "{{.Names}}").Output()
+	if err != nil {
+		return
+	}
+	var names []string
+	for _, n := range strings.Fields(string(ps)) {
+		if strings.HasPrefix(n, "ccnu_lesson_agent") {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+	// 2) 对这批容器取一次 stats（每行一个容器）
+	args := append([]string{"stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"}, names...)
+	cmd := exec.CommandContext(context.Background(), "docker", args...)
+	b, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if line == "" {
+			continue
+		}
+		f := strings.Split(line, "\t")
+		if len(f) != 4 {
+			continue
+		}
+		*out = append(*out, ContainerStat{Name: f[0], CPU: f[1], Mem: f[2], MemPerc: f[3]})
+	}
+}
+
+var processStart = time.Now()
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})

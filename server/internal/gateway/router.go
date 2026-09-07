@@ -25,6 +25,8 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	skillH := &skillService{loader: loader, registry: reg}
 	chatH := &chatService{store: st, conv: convH, provider: prov, registry: reg,
 		codex: codexCli, uploadDir: cfg.UploadDir, artifactDir: cfg.ArtifactDir, model: modelName}
+	chatH.attach = &chatAttachmentService{store: st, uploadDir: cfg.UploadDir}
+	monH := &monitorService{store: st, codex: codexCli, started: time.Now()}
 
 	mux := http.NewServeMux()
 
@@ -60,12 +62,22 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 
 	// 对话（SSE，需登录）
 	mux.HandleFunc("POST /v1/chat", authH.requireAuth(chatH.stream))
+	// 对话附件（多文件，同步解析入资料库，需登录）
+	mux.HandleFunc("POST /v1/chat/attachments", authH.requireAuth(chatH.attach.upload))
 
 	// Skill 清单 + 命令清单 + 文档技能管理（需登录；改动建议仅 teacher/admin）
 	mux.HandleFunc("GET /v1/skills", authH.requireAuth(skillH.list))
 	mux.HandleFunc("GET /v1/skills/{name}", authH.requireAuth(skillH.docDetail))
 	mux.HandleFunc("PUT /v1/skills/{name}", authH.requireRole(skillH.save, store.RoleTeacher, store.RoleAdmin))
 	mux.HandleFunc("DELETE /v1/skills/{name}", authH.requireRole(skillH.remove, store.RoleTeacher, store.RoleAdmin))
+
+	// 监控（仅 admin）
+	mux.HandleFunc("GET /v1/monitor/overview", authH.requireRole(monH.overview, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/health", authH.requireRole(monH.serviceHealth, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/conversations", authH.requireRole(monH.auditConversations, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/conversations/export-all", authH.requireRole(monH.auditExportAll, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/conversations/{id}", authH.requireRole(monH.auditTranscript, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/conversations/{id}/export", authH.requireRole(monH.auditExport, store.RoleAdmin))
 
 	handler := http.Handler(mux)
 	handler = corsMiddleware(cfg.CORSOrigins, handler)
