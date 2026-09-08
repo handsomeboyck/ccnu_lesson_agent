@@ -101,14 +101,18 @@ export function login(username: string, password: string): Promise<TokenPair> {
 }
 
 export async function logout(): Promise<void> {
+  // 先本地同步登出（立即生效：跳转登录页/显示未登录态），
+  // 再尽力而为地吊销服务端 refresh token（网络失败不影响本地登出）。
   const { refreshToken } = useAuth.getState()
+  useAuth.getState().clear()
+  if (!refreshToken) return
   try {
     await rawRequest('/v1/auth/logout', {
       method: 'POST',
       body: { refresh_token: refreshToken },
     })
-  } finally {
-    useAuth.getState().clear()
+  } catch {
+    // 忽略：token 过期机制兜底
   }
 }
 
