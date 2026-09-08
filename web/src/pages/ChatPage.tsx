@@ -180,6 +180,9 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null) // 输入框（自动增高）
+  const lastConvRef = useRef<string | null>(null) // 上次打开的会话（刷新恢复）
+  const restoredRef = useRef(false)               // 是否已执行过会话恢复
+  const convLoadedRef = useRef(false)             // 会话列表是否已加载完成
   const activeConv = conversations.find((c) => c.id === activeId) ?? null
 
   // ---- AI SDK chat（v7：显式 transport + 请求适配层）----
@@ -214,8 +217,12 @@ export default function ChatPage() {
   })
   const streaming = status === 'streaming' || status === 'submitted'
 
-  // ---- 初始化 ----
+  // ---- 初始化（含刷新恢复：会话 + 草稿）----
   useEffect(() => {
+    const last = localStorage.getItem('ccnu-last-conv')
+    lastConvRef.current = last && last !== '' ? last : null
+    const draft = localStorage.getItem('ccnu-last-draft')
+    if (draft) setInput(draft)
     void refreshConversations()
     void listSkills()
       .then(({ commands: list }) => setCommands(list))
@@ -228,6 +235,7 @@ export default function ChatPage() {
     try {
       const { conversations: list } = await listConversations()
       setConversations(list)
+      convLoadedRef.current = true
     } catch {
       // 静默
     }
@@ -251,6 +259,23 @@ export default function ChatPage() {
     },
     [conversations, streaming, stop, setMessages],
   )
+
+  // 刷新后自动恢复上次打开的会话（列表加载完成后执行一次）
+  useEffect(() => {
+    if (restoredRef.current || !convLoadedRef.current) return
+    restoredRef.current = true
+    const id = lastConvRef.current
+    if (id && conversations.some((c) => c.id === id)) void openConversation(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, openConversation])
+
+  // 记忆当前会话与输入草稿（刷新不丢）
+  useEffect(() => {
+    localStorage.setItem('ccnu-last-conv', activeId ?? '')
+  }, [activeId])
+  useEffect(() => {
+    localStorage.setItem('ccnu-last-draft', input)
+  }, [input])
 
   const newChat = useCallback(() => {
     if (streaming) stop()
