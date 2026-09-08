@@ -94,7 +94,7 @@ try {
   await new Promise((r) => setTimeout(r, 600))
   text = await page.evaluate(() => document.body.innerText)
   console.log('== 场景2 ask 提问卡 ==')
-  console.log('提问卡:', text.includes('小毅想先确认一个问题') ? '✓ 出现' : '✗ 缺失')
+  console.log('提问卡:', text.includes('小艺想先确认一个问题') ? '✓ 出现' : '✗ 缺失')
   const options = await page.evaluate(() => {
     const ask = [...document.querySelectorAll('button')].filter((b) => b.textContent.trim().length > 0 && b.textContent.trim().length < 20)
     return ask.map((b) => b.textContent.trim()).slice(0, 8)
@@ -141,7 +141,7 @@ try {
   console.log('历史文本渲染:', histText.includes('一元二次方程') ? '✓' : '✗')
   console.log('历史工具卡:', histText.includes('quiz_generator') || histText.includes('ask_user') ? '✓' : '✗')
   console.log('历史思考卡:', histText.includes('思考过程') ? '✓' : '✗')
-  console.log('历史提问卡:', histText.includes('小毅想先确认一个问题') ? '✓' : '✗')
+  console.log('历史提问卡:', histText.includes('小艺想先确认一个问题') ? '✓' : '✗')
   console.log('== 场景4 控制台错误 ==')
   console.log(logs.join('\n') || '(无)')
 

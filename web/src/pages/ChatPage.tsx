@@ -1011,7 +1011,7 @@ function MessageRow({
           isUser ? 'bg-muted text-foreground' : 'bg-ccnu-blue text-white'
         }`}
       >
-        {isUser ? userName : '毅'}
+        {isUser ? userName : '艺'}
       </div>
       <div className={`min-w-0 max-w-[85%] ${isUser ? 'text-right' : 'flex-1'}`}>
         {isUser ? (
