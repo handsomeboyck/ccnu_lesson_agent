@@ -23,5 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
-# E2E ЅШНј
+# E2E ж€Єе›ѕ
 *.png
+!public/icons/
+!public/icons/*.png
