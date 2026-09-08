@@ -2584,3 +2584,23 @@ button.artifact-file:disabled {
   color: var(--text-faint);
   text-align: right;
 }
+
+/* ---- 移动端（窄屏）适配 ---- */
+@media (max-width: 767px) {
+  .audit-table {
+    overflow-x: auto; /* 审计表窄屏横向滚动 */
+  }
+  .audit-row {
+    min-width: 640px;
+  }
+  .bar-chart {
+    overflow-x: auto; /* 24h 柱状图横向滚动 */
+  }
+  .health-strip {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "华中师范大学 · 智能助教",
+  "short_name": "智能助教",
+  "description": "面向华师师生的 AI 智能助教：答疑讲解、练习测评、教案批改、资料问答",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f4f6fa",
+  "theme_color": "#1b4b9b",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
