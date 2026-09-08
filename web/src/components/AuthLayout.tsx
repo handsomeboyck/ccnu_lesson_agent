@@ -1,5 +1,6 @@
 // 登录/注册共用外壳：左品牌栏（校徽 + 标语）+ 右表单卡。
 import type { ReactNode } from 'react'
+import { ExternalLink } from 'lucide-react'
 
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
@@ -15,7 +16,18 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             面向师生的 AI 智能助教：多轮问答 · 生成教案与试卷 · 文档分析与图表产出。以师范精神赋能教与学。
           </p>
         </div>
-        <div className="text-xs text-white/60">Central China Normal University / CCNU AI</div>
+        <div className="flex items-center gap-3 text-xs text-white/60">
+          <span>Central China Normal University / CCNU AI</span>
+          <a
+            href="https://github.com/handsomeboyck/ccnu_lesson_agent"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+            title="开源仓库 · GitHub"
+          >
+            <ExternalLink className="size-3.5" /> GitHub
+          </a>
+        </div>
       </aside>
       <main className="flex flex-1 items-center justify-center bg-background px-4 py-10">
         <div className="w-full max-w-sm">{children}</div>

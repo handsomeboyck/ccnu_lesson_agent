@@ -7,6 +7,7 @@ import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import {
   Activity,
+  ExternalLink,
   FolderOpen,
   GraduationCap,
   Library,
@@ -554,6 +555,15 @@ export default function ChatPage() {
             <div className="truncate text-xs font-medium">{user?.display_name ?? user?.username}</div>
             <div className="text-[10px] text-muted-foreground">{user?.role}</div>
           </div>
+          <a
+            href="https://github.com/handsomeboyck/ccnu_lesson_agent"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="开源仓库 · GitHub"
+          >
+            <ExternalLink className="size-4" />
+          </a>
           <button
             className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             title="退出登录"
