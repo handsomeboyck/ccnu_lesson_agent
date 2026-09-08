@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowLeft, CheckCircle2, Loader2, LogOut, Trash2, Upload, XCircle } from 'lucide-react'
 import {
   deleteLibraryFile,
   listLibrary,
@@ -7,6 +8,8 @@ import {
   uploadLibraryFile,
   type LibraryFile,
 } from '../api/client'
+import FileIcon from '../components/FileIcon'
+import { Button } from '../components/ui/button'
 
 const ACCEPT = '.pdf,.docx,.doc,.xlsx,.txt,.md,.csv'
 const POLL_MS = 2000
@@ -41,7 +44,6 @@ export default function LibraryPage() {
     let cancelled = false
     async function boot() {
       if (await refresh()) {
-        // 有解析中的文件 → 轮询
         let n = 0
         pollRef.current = window.setInterval(async () => {
           n++
@@ -62,7 +64,7 @@ export default function LibraryPage() {
 
   async function pickFiles(ev: React.ChangeEvent<HTMLInputElement>) {
     const list = Array.from(ev.target.files ?? [])
-    ev.target.value = '' // 允许重复选择同一文件
+    ev.target.value = ''
     if (list.length === 0) return
     setUploading(true)
     setError('')
@@ -73,7 +75,6 @@ export default function LibraryPage() {
       }
       setInfo(`已上传 ${list.length} 个文件，正在解析…`)
       await refresh()
-      // 启动轮询直到解析完成
       let n = 0
       if (pollRef.current) window.clearInterval(pollRef.current)
       pollRef.current = window.setInterval(async () => {
@@ -102,97 +103,103 @@ export default function LibraryPage() {
   }
 
   return (
-    <div className="page-shell">
-      <header className="page-header">
+    <div className="mx-auto max-w-5xl px-6 py-8">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1>📚 我的资料库</h1>
-          <p className="page-sub">
+          <h1 className="font-display text-xl font-bold">我的资料库</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             上传 pdf / docx / xlsx / txt，自动解析并建立索引。对话中问「根据我上传的资料…」即可检索引用（带出处）。
           </p>
         </div>
-        <div className="page-actions">
-          <button className="btn-primary sm" disabled={uploading} onClick={() => fileRef.current?.click()}>
-            {uploading ? '上传中…' : '＋ 上传文件'}
-          </button>
-          <Link to="/" className="btn-ghost">
-            ← 回对话
-          </Link>
-          <button
-            className="btn-ghost"
+        <div className="flex items-center gap-2">
+          <Button size="sm" disabled={uploading} onClick={() => fileRef.current?.click()}>
+            <Upload className="size-3.5" /> {uploading ? '上传中…' : '上传文件'}
+          </Button>
+          <Button size="sm" variant="ghost" className="[&_svg]:size-3.5">
+            <Link to="/" className="inline-flex items-center gap-1.5">
+              <ArrowLeft /> 回对话
+            </Link>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => {
               void logout()
               window.location.href = '/login'
             }}
           >
-            ⎋ 退出
-          </button>
+            <LogOut className="size-3.5" /> 退出
+          </Button>
           <input ref={fileRef} type="file" multiple accept={ACCEPT} hidden onChange={pickFiles} />
         </div>
       </header>
 
       {error && (
-        <div className="error-banner">
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           <span>⚠ {error}</span>
           <button onClick={() => setError('')}>✕</button>
         </div>
       )}
       {info && (
-        <div className="info-banner">
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-success/30 bg-success/5 px-3 py-2 text-sm text-success">
           <span>✓ {info}</span>
           <button onClick={() => setInfo('')}>✕</button>
         </div>
       )}
 
-      <div className="file-table">
-        <div className="file-row head">
-          <span className="col-name">文件名</span>
-          <span className="col-size">大小</span>
-          <span className="col-status">状态</span>
-          <span className="col-time">上传时间</span>
-          <span className="col-op" />
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="grid grid-cols-[minmax(0,1fr)_90px_110px_160px_40px] items-center gap-2 border-b border-border bg-muted/50 px-4 py-2.5 text-xs font-medium text-muted-foreground">
+          <span>文件名</span>
+          <span>大小</span>
+          <span>状态</span>
+          <span>上传时间</span>
+          <span />
         </div>
         {files.map((f) => (
-          <div key={f.id} className="file-row">
-            <span className="col-name" title={f.filename}>
-              <span className="file-icon">{iconOf(f.ext)}</span>
-              {f.filename}
+          <div
+            key={f.id}
+            className="grid grid-cols-[minmax(0,1fr)_90px_110px_160px_40px] items-center gap-2 border-b border-border/60 px-4 py-2.5 text-sm last:border-0 hover:bg-accent/40"
+          >
+            <span className="flex min-w-0 items-center gap-2" title={f.filename}>
+              <FileIcon name={f.filename} mime={`application/${f.ext}`} size={16} />
+              <span className="truncate">{f.filename}</span>
             </span>
-            <span className="col-size">{fmtSize(f.size_bytes)}</span>
-            <span className="col-status">
-              {f.status === 'ready' && <span className="tag doc">✓ 已就绪</span>}
-              {f.status === 'parsing' && <span className="status-spin">⏳ 解析中…</span>}
+            <span className="text-xs text-muted-foreground">{fmtSize(f.size_bytes)}</span>
+            <span>
+              {f.status === 'ready' && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs text-success">
+                  <CheckCircle2 className="size-3" /> 已就绪
+                </span>
+              )}
+              {f.status === 'parsing' && (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" /> 解析中…
+                </span>
+              )}
               {f.status === 'failed' && (
-                <span className="status-fail" title={f.error}>
-                  ✗ 失败
+                <span className="inline-flex items-center gap-1 text-xs text-destructive" title={f.error}>
+                  <XCircle className="size-3" /> 失败
                 </span>
               )}
             </span>
-            <span className="col-time">{new Date(f.created_at).toLocaleString()}</span>
-            <span className="col-op">
-              <button title="删除" onClick={() => void remove(f)}>
-                🗑
+            <span className="text-xs text-muted-foreground">{new Date(f.created_at).toLocaleString()}</span>
+            <span className="flex justify-end">
+              <button
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
+                title="删除"
+                onClick={() => void remove(f)}
+              >
+                <Trash2 className="size-4" />
               </button>
             </span>
           </div>
         ))}
         {files.length === 0 && !uploading && (
-          <div className="conv-empty">资料库为空。上传一份讲义/课件/表格试试：对话里就能引用它。</div>
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+            资料库为空。上传一份讲义/课件/表格试试：对话里就能引用它。
+          </div>
         )}
       </div>
     </div>
   )
-}
-
-function iconOf(ext: string): string {
-  switch (ext) {
-    case 'pdf':
-      return '📕'
-    case 'docx':
-    case 'doc':
-      return '📘'
-    case 'xlsx':
-      return '📗'
-    default:
-      return '📄'
-  }
 }

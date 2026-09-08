@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowLeft, FileCode2, LogOut, Plus, Save, Trash2 } from 'lucide-react'
 import {
   deleteSkill,
   getSkillDetail,
@@ -9,6 +10,7 @@ import {
   type SkillInfo,
 } from '../api/client'
 import { useAuth } from '../store/auth'
+import { Button } from '../components/ui/button'
 
 const NEW_SKILL_TEMPLATE = `---
 name: my_skill
@@ -116,98 +118,113 @@ export default function SkillsPage() {
   }
 
   return (
-    <div className="page-shell">
-      <header className="page-header">
+    <div className="mx-auto max-w-6xl px-6 py-8">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1>🧩 技能管理</h1>
-          <p className="page-sub">
+          <h1 className="font-display text-xl font-bold">技能管理</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Skill = SKILL.md 文档（Claude 风格）。新增/修改即生效，无需重启。
             {canManage ? ' 你是教师/管理员，可增删改。' : ' 仅教师/管理员可增删改（当前可查看）。'}
           </p>
         </div>
-        <div className="page-actions">
+        <div className="flex items-center gap-2">
           {canManage && (
-            <button className="btn-primary sm" onClick={newSkill}>
-              ＋ 新建技能
-            </button>
+            <Button size="sm" onClick={newSkill}>
+              <Plus className="size-3.5" /> 新建技能
+            </Button>
           )}
-          <Link to="/" className="btn-ghost">
-            ← 回对话
+          <Link to="/" className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
+            <ArrowLeft className="size-3.5" /> 回对话
           </Link>
-          <button
-            className="btn-ghost"
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => {
               void logout()
               window.location.href = '/login'
             }}
           >
-            ⎋ 退出
-          </button>
+            <LogOut className="size-3.5" /> 退出
+          </Button>
         </div>
       </header>
 
       {error && (
-        <div className="error-banner">
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           <span>⚠ {error}</span>
           <button onClick={() => setError('')}>✕</button>
         </div>
       )}
       {info && (
-        <div className="info-banner">
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-success/30 bg-success/5 px-3 py-2 text-sm text-success">
           <span>✓ {info}</span>
           <button onClick={() => setInfo('')}>✕</button>
         </div>
       )}
 
-      <div className="split-layout">
-        <aside className="skill-side">
+      <div className="grid grid-cols-[280px_minmax(0,1fr)] gap-4">
+        <aside className="max-h-[70vh] overflow-y-auto rounded-xl border border-border bg-card p-1.5 shadow-sm">
           {skills.map((s) => (
-            <div key={s.name} className={`skill-row ${selected === s.name ? 'active' : ''}`} onClick={() => void openSkill(s.name)}>
-              <div className="skill-row-title">
+            <div
+              key={s.name}
+              className={`group flex cursor-pointer flex-col gap-1 rounded-lg px-3 py-2.5 ${
+                selected === s.name ? 'bg-ccnu-blue/10' : 'hover:bg-accent'
+              }`}
+              onClick={() => void openSkill(s.name)}
+            >
+              <div className="flex items-center gap-1.5 text-sm font-semibold">
+                <FileCode2 className="size-3.5 text-muted-foreground" />
                 {s.name}
-                {s.doc ? <span className="tag doc">文档</span> : <span className="tag prim">原语</span>}
-              </div>
-              <div className="skill-row-desc">{s.description}</div>
-              <div className="skill-row-actions">
+                {s.doc ? (
+                  <span className="rounded-full bg-ccnu-blue/10 px-1.5 py-0.5 text-[10px] text-ccnu-blue">文档</span>
+                ) : (
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">原语</span>
+                )}
                 {canManage && !s.primitive && (
                   <button
+                    className="ml-auto rounded p-0.5 text-muted-foreground opacity-0 hover:bg-accent hover:text-destructive group-hover:opacity-100"
                     title="删除"
                     onClick={(e) => {
                       e.stopPropagation()
                       void remove(s.name)
                     }}
                   >
-                    🗑
+                    <Trash2 className="size-3.5" />
                   </button>
                 )}
               </div>
+              <div className="text-xs leading-relaxed text-muted-foreground">{s.description}</div>
             </div>
           ))}
-          {skills.length === 0 && <div className="conv-empty">加载中…</div>}
+          {skills.length === 0 && <div className="px-3 py-6 text-center text-sm text-muted-foreground">加载中…</div>}
         </aside>
 
-        <main className="skill-editor">
+        <main className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           {selected ? (
             <>
-              <div className="editor-toolbar">
-                <span className="toolbar-title">{selected === '__new__' ? '新建技能' : `编辑 ${selected}`}</span>
+              <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+                <span className="text-sm font-semibold">{selected === '__new__' ? '新建技能' : `编辑 ${selected}`}</span>
                 {canManage && (
-                  <button className="btn-primary sm" onClick={() => void save()} disabled={busy}>
-                    {busy ? '保存中…' : '保存并生效'}
-                  </button>
+                  <Button size="sm" onClick={() => void save()} disabled={busy}>
+                    <Save className="size-3.5" /> {busy ? '保存中…' : '保存并生效'}
+                  </Button>
                 )}
               </div>
               <textarea
-                className="md-editor"
+                className="h-[60vh] w-full resize-none bg-transparent p-4 font-mono text-xs leading-relaxed outline-none"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 readOnly={!canManage}
                 spellCheck={false}
               />
-              <p className="composer-hint">SKILL.md 格式：YAML frontmatter（name/description/commands）+ Markdown 执行指引。</p>
+              <p className="border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
+                SKILL.md 格式：YAML frontmatter（name/description/commands）+ Markdown 执行指引。
+              </p>
             </>
           ) : (
-            <div className="editor-empty">← 选择左侧技能查看/编辑，或点「新建技能」。</div>
+            <div className="flex h-full min-h-64 items-center justify-center text-sm text-muted-foreground">
+              ← 选择左侧技能查看/编辑，或点「新建技能」。
+            </div>
           )}
         </main>
       </div>

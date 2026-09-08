@@ -1,6 +1,7 @@
 // 监控中心（仅 admin）：Agent 指标 + 系统/宿主指标 + 服务健康 + 对话审计
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowLeft, ClipboardCopy, Download, Eye, LogOut, PackageOpen } from 'lucide-react'
 import {
   exportAllAudit,
   exportAuditConversation,
@@ -12,6 +13,7 @@ import {
   type AuditMsg,
   type MonitorOverview,
 } from '../api/client'
+import { Button } from '../components/ui/button'
 
 const HOUR_LABELS = ['0点', '2点', '4点', '6点', '8点', '10点', '12点', '14点', '16点', '18点', '20点', '22点']
 
@@ -122,27 +124,28 @@ export default function MonitorPage() {
   })
 
   return (
-    <div className="page-shell monitor-page">
-      <header className="page-header">
+    <div className="mx-auto max-w-6xl px-6 py-8">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1>🛰️ 监控中心</h1>
-          <p className="page-sub">
+          <h1 className="font-display text-xl font-bold">监控中心</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Agent 运行指标（近 {data?.window_hours ?? 24}h）与服务/宿主状态，每 15 秒自动刷新。
           </p>
         </div>
-        <div className="page-actions">
-          <Link to="/" className="btn-ghost">
-            ← 回对话
+        <div className="flex items-center gap-2">
+          <Link to="/" className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
+            <ArrowLeft className="size-3.5" /> 回对话
           </Link>
-          <button
-            className="btn-ghost"
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => {
               void logout()
               window.location.href = '/login'
             }}
           >
-            ⎋ 退出
-          </button>
+            <LogOut className="size-3.5" /> 退出
+          </Button>
         </div>
       </header>
 
@@ -254,7 +257,7 @@ export default function MonitorPage() {
                 className="btn-primary sm export-all-btn"
                 onClick={() => void exportAllAudit().catch((e) => setConvErr(e instanceof Error ? e.message : '导出失败'))}
               >
-                📦 一键导出全部会话（zip）
+                <PackageOpen className="size-3.5" /> 一键导出全部会话（zip）
               </button>
             )}
             {convs.length > 0 && (
@@ -265,7 +268,7 @@ export default function MonitorPage() {
                   navigator.clipboard.writeText(lines.join('\n'))
                 }}
               >
-                ⧉ 复制会话清单
+                <ClipboardCopy className="size-3.5" /> 复制会话清单
               </button>
             )}
           </div>
@@ -296,10 +299,10 @@ export default function MonitorPage() {
                   <span className="audit-time">{new Date(c.updated_at).toLocaleString()}</span>
                   <span className="audit-op">
                     <button className="hist-artifact-dl" onClick={() => void openTranscript(c)}>
-                      👁 问答
+                      <Eye className="size-3.5" /> 问答
                     </button>
                     <button className="btn-ghost-sm" onClick={() => void exportAuditConversation(c)}>
-                      ⬇ 导出
+                      <Download className="size-3.5" /> 导出
                     </button>
                   </span>
                 </div>
@@ -375,7 +378,7 @@ export default function MonitorPage() {
               </span>
               <span className="audit-actions">
                 <button className="btn-ghost-sm" onClick={() => void exportAuditConversation(transcript.conv)}>
-                  ⬇ 导出 txt
+                  <Download className="size-3.5" /> 导出 txt
                 </button>
                 <button onClick={() => setTranscript(null)}>✕</button>
               </span>
@@ -386,7 +389,7 @@ export default function MonitorPage() {
               ) : (
                 transcript.msgs.map((m) => (
                   <div key={m.id} className={`tr-msg ${m.role}`}>
-                    <div className="tr-who">{m.role === 'user' ? '🧑‍🎓 学生' : '🎓 学伴'}</div>
+                    <div className="tr-who">{m.role === 'user' ? '学生' : '学伴'}</div>
                     <div className="tr-content">{m.content}</div>
                     <div className="tr-time">{new Date(m.created_at).toLocaleString()}</div>
                   </div>
@@ -420,11 +423,11 @@ function SysRow({ label, value, detail, danger }: { label: string; value: string
 function modeLabel(m: string): string {
   switch (m) {
     case 'companion':
-      return '🎓 学伴'
+      return '学伴'
     case 'practice':
-      return '📝 练习'
+      return '练习'
     case 'teacher':
-      return '🖊️ 教师'
+      return '教师'
     case 'none':
       return '未指定'
     default:

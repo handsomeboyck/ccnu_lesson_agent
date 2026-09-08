@@ -39,6 +39,29 @@
   box-sizing: border-box;
 }
 
+/* 共享输入框（新组件体系） */
+.input-base {
+  width: 100%;
+  height: 2.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-input);
+  background: var(--color-card);
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-foreground);
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.input-base::placeholder {
+  color: var(--color-muted-foreground);
+}
+.input-base:focus {
+  border-color: var(--color-ccnu-blue);
+  box-shadow: 0 0 0 2px rgba(27, 75, 155, 0.15);
+}
+
 :root {
   /* ============ 华中师范大学 · 学术典雅主题 ============ */
   /* 色板 */

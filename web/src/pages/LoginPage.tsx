@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { login } from '../api/client'
 import { useAuth } from '../store/auth'
 import PasswordField from '../components/PasswordField'
+import AuthLayout from '../components/AuthLayout'
+import { Button } from '../components/ui/button'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -28,56 +30,56 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="auth-page">
-      <aside className="auth-panel">
-        <div>
-          <div className="ccnu-emblem">华</div>
-          <div className="auth-panel-title">华中师范大学 · 智能学伴</div>
-          <div className="auth-panel-slogan">求实创新 · 立德树人</div>
-          <p className="auth-panel-desc">
-            面向师生的教育版 AI 学伴：多轮问答 · 生成教案与试卷 ·
-            文档分析与图表产出。以师范精神赋能教与学。
-          </p>
+    <AuthLayout>
+      <div className="mb-8 flex items-center gap-3 lg:hidden">
+        <div className="flex size-10 items-center justify-center rounded-full bg-ccnu-blue font-display text-lg font-bold text-white">
+          华
         </div>
-        <div className="auth-panel-foot">Central China Normal University · CCNU AI</div>
-      </aside>
-      <div className="auth-card">
-        <div className="ccnu-emblem">华</div>
-        <h1>
-          <span className="ccnu-wordmark">欢迎回来</span>
-        </h1>
-        <p className="auth-sub">登录教育版智能学伴</p>
-        <form onSubmit={onSubmit} className="auth-form">
-          <label>
-            用户名
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              required
-              minLength={3}
-              placeholder="请输入用户名"
-            />
-          </label>
-          <label>
-            密码
-            <PasswordField
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-              placeholder="请输入密码"
-            />
-          </label>
-          {error && <div className="auth-error">{error}</div>}
-          <button type="submit" className="btn-primary" disabled={busy}>
-            {busy ? '登录中…' : '登 录'}
-          </button>
-        </form>
-        <p className="auth-alt">
-          还没有账号？<Link to="/register">立即注册</Link>
-        </p>
+        <div>
+          <div className="font-display text-sm font-bold">华中师范大学 · 智能学伴</div>
+          <div className="text-[11px] text-muted-foreground">教育版 AI 学伴</div>
+        </div>
       </div>
-    </div>
+      <h1 className="font-display text-xl font-bold">欢迎回来</h1>
+      <p className="mt-1 text-sm text-muted-foreground">登录教育版智能学伴</p>
+      <form onSubmit={onSubmit} className="mt-6 space-y-4">
+        <label className="block text-sm">
+          <span className="mb-1.5 block font-medium">用户名</span>
+          <input
+            className="input-base"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            required
+            minLength={3}
+            placeholder="请输入用户名"
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1.5 block font-medium">密码</span>
+          <PasswordField
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+            placeholder="请输入密码"
+          />
+        </label>
+        {error && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+        <Button type="submit" className="w-full" size="lg" disabled={busy}>
+          {busy ? '登录中…' : '登 录'}
+        </Button>
+      </form>
+      <p className="mt-5 text-center text-sm text-muted-foreground">
+        还没有账号？{' '}
+        <Link to="/register" className="font-medium text-ccnu-blue hover:underline">
+          立即注册
+        </Link>
+      </p>
+    </AuthLayout>
   )
 }
