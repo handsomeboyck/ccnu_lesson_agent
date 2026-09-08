@@ -15,7 +15,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             面向师生的教育版 AI 学伴：多轮问答 · 生成教案与试卷 · 文档分析与图表产出。以师范精神赋能教与学。
           </p>
         </div>
-        <div className="text-xs text-white/50">Central China Normal University · CCNU AI</div>
+        <div className="text-xs text-white/60">Central China Normal University / CCNU AI</div>
       </aside>
       <main className="flex flex-1 items-center justify-center bg-background px-4 py-10">
         <div className="w-full max-w-sm">{children}</div>

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -228,9 +229,11 @@ func withStatic(api http.Handler, webDist string) http.Handler {
 		if info, err := os.Stat(webDist); err == nil && info.IsDir() {
 			fileServer := http.FileServer(http.Dir(webDist))
 			fileHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				clean := filepath.Clean("/" + strings.TrimPrefix(r.URL.Path, "/"))
+				// path.Clean 恒用 "/" 语义（跨平台）。注意：传给 os.DirFS 的 name 必须保持
+				// 正斜杠（fs.ValidPath 拒绝前导斜杠与反斜杠），DirFS 内部会做平台转换。
+				clean := path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/"))
 				// 若请求对应真实文件则直接提供；否则 SPA fallback 到 index.html
-				if _, err := fs.Stat(os.DirFS(webDist), filepath.ToSlash(strings.TrimPrefix(clean, "/"))); err == nil && clean != "/" {
+				if _, err := fs.Stat(os.DirFS(webDist), strings.TrimPrefix(clean, "/")); err == nil && clean != "/" {
 					fileServer.ServeHTTP(w, r)
 					return
 				}

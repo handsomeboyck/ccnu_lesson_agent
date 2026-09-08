@@ -8,10 +8,12 @@ import { DefaultChatTransport, type UIMessage } from 'ai'
 import {
   Activity,
   FolderOpen,
+  GraduationCap,
   Library,
   LogOut,
   NotebookPen,
   Paperclip,
+  PenLine,
   Plus,
   Puzzle,
   Search,
@@ -20,6 +22,7 @@ import {
   Square,
   Trash2,
   Pencil,
+  type LucideIcon,
 } from 'lucide-react'
 import {
   deleteConversation,
@@ -72,7 +75,12 @@ const WELCOME_GUIDES = [
   },
 ]
 
-const MODE_ICONS: Record<string, string> = { companion: '🎓', practice: '📝', teacher: '🖊️' }
+// 会话模式图标（lucide 组件，替代 emoji）
+const MODE_ICONS: Record<string, LucideIcon> = {
+  companion: GraduationCap,
+  practice: NotebookPen,
+  teacher: PenLine,
+}
 
 /** 历史消息（REST）→ AI SDK UIMessage（工具轨迹/产物映射为 parts）。 */
 function historyToMessages(msgs: ServerMessage[]): UIMessage[] {
@@ -465,7 +473,12 @@ export default function ChatPage() {
                     }`}
                     onClick={() => void openConversation(c.id)}
                   >
-                    <span className="text-xs">{MODE_ICONS[c.mode] ?? '💬'}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {(() => {
+                        const Icon = MODE_ICONS[c.mode]
+                        return Icon ? <Icon className="size-3.5" /> : <span>💬</span>
+                      })()}
+                    </span>
                     <span className="min-w-0 flex-1 truncate">{c.title}</span>
                     <span className="hidden shrink-0 gap-0.5 group-hover:flex">
                       <button
@@ -580,7 +593,8 @@ export default function ChatPage() {
           {dragActive && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-ccnu-blue/10">
               <div className="rounded-xl border-2 border-dashed border-ccnu-blue bg-card px-8 py-6 text-sm font-medium text-ccnu-blue">
-                📎 松开以附加文件（pdf / docx / xlsx / txt / md / csv，≤5 个）
+                <Paperclip className="mr-1.5 inline size-4" />
+                松开以附加文件（pdf / docx / xlsx / txt / md / csv，≤5 个）
               </div>
             </div>
           )}
@@ -594,7 +608,7 @@ export default function ChatPage() {
                 <h2 className="font-display text-xl font-bold">华中师范大学 · 智能学伴</h2>
                 <p className="mt-1 text-xs text-ccnu-gold-deep">求实创新 · 立德树人</p>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  多轮对话 · 流式输出 · 输入 <code>/</code> 唤起 Skill · 生成可下载的学习文件
+                  多轮对话、流式输出、输入 <code>/</code> 唤起 Skill、生成可下载的学习文件
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">

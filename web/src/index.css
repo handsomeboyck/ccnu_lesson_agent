@@ -127,7 +127,7 @@ h4,
 .welcome h2 {
   font-family: var(--font-display);
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
 html,
@@ -852,7 +852,11 @@ textarea {
   color: #16324f;
 }
 
-/* markdown 渲染 */
+/* markdown 渲染（正文 15px/1.7：中文阅读更舒展） */
+.markdown-body {
+  font-size: 15px;
+  line-height: 1.7;
+}
 .markdown-body p {
   margin: 0.4em 0;
 }
@@ -906,6 +910,25 @@ textarea {
 @keyframes blink {
   50% {
     opacity: 0;
+  }
+}
+/* 思考中省略号动画 */
+.thinking-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--color-ccnu-blue);
+  animation: think-dot 1.2s ease-in-out infinite;
+}
+@keyframes think-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
   }
 }
 

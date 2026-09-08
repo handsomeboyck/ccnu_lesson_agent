@@ -44,7 +44,7 @@ export default function LoginPage() {
       <p className="mt-1 text-sm text-muted-foreground">登录教育版智能学伴</p>
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <label className="block text-sm">
-          <span className="mb-1.5 block font-medium">用户名</span>
+          <span className="mb-2 block font-medium">用户名</span>
           <input
             className="input-base"
             value={username}
@@ -56,7 +56,7 @@ export default function LoginPage() {
           />
         </label>
         <label className="block text-sm">
-          <span className="mb-1.5 block font-medium">密码</span>
+          <span className="mb-2 block font-medium">密码</span>
           <PasswordField
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -70,8 +70,8 @@ export default function LoginPage() {
             {error}
           </div>
         )}
-        <Button type="submit" className="w-full" size="lg" disabled={busy}>
-          {busy ? '登录中…' : '登 录'}
+        <Button type="submit" className="w-full tracking-[0.3em]" size="lg" disabled={busy}>
+          {busy ? '登录中…' : '登录'}
         </Button>
       </form>
       <p className="mt-5 text-center text-sm text-muted-foreground">

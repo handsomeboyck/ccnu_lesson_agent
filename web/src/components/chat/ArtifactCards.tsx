@@ -1,6 +1,6 @@
 // 产物卡片：图片缩略图 / 文件图标卡 + 预览（docx mammoth / pdf iframe / 文本）+ 下载。
 import { useEffect, useState } from 'react'
-import { Download, Eye, FileText, ImageIcon, X } from 'lucide-react'
+import { Download, Eye, FileText, ImageIcon, Paperclip, X } from 'lucide-react'
 import mammoth from 'mammoth'
 import { downloadArtifact, fetchArtifact, type ServerMessageArtifact } from '../../api/client'
 import FileIcon from '../FileIcon'
@@ -76,7 +76,9 @@ export default function ArtifactCards({
 
   return (
     <div className="mt-2">
-      <div className="mb-1.5 text-xs font-medium text-muted-foreground">📎 生成的文件</div>
+      <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Paperclip className="size-3" /> 生成的文件
+      </div>
       <div className={cn('grid gap-2', compact ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4')}>
         {artifacts.map((a) => (
           <ArtifactCard key={a.id || a.name} a={a} onPreview={() => void openPreview(a)} />

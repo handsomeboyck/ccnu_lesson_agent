@@ -56,7 +56,7 @@ export default function RegisterPage() {
       <p className="mt-1 text-sm text-muted-foreground">加入教育版智能学伴</p>
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <label className="block text-sm">
-          <span className="mb-1.5 block font-medium">用户名</span>
+          <span className="mb-2 block font-medium">用户名</span>
           <input
             className="input-base"
             value={username}
@@ -68,7 +68,7 @@ export default function RegisterPage() {
           />
         </label>
         <label className="block text-sm">
-          <span className="mb-1.5 block font-medium">昵称（可选）</span>
+          <span className="mb-2 block text-[13px] font-normal text-muted-foreground">昵称（可选）</span>
           <input
             className="input-base"
             value={displayName}
@@ -77,7 +77,7 @@ export default function RegisterPage() {
           />
         </label>
         <label className="block text-sm">
-          <span className="mb-1.5 block font-medium">密码</span>
+          <span className="mb-2 block font-medium">密码</span>
           <PasswordField
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -88,7 +88,7 @@ export default function RegisterPage() {
           />
         </label>
         <label className="block text-sm">
-          <span className="mb-1.5 block font-medium">确认密码</span>
+          <span className="mb-2 block font-medium">确认密码</span>
           <PasswordField
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
@@ -102,8 +102,8 @@ export default function RegisterPage() {
             {error}
           </div>
         )}
-        <Button type="submit" className="w-full" size="lg" disabled={busy}>
-          {busy ? '注册中…' : '注 册'}
+        <Button type="submit" className="w-full tracking-[0.3em]" size="lg" disabled={busy}>
+          {busy ? '注册中…' : '注册'}
         </Button>
       </form>
       <p className="mt-5 text-center text-sm text-muted-foreground">

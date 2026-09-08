@@ -42,7 +42,7 @@ export default function ToolCard({ part }: { part: ToolPartLike | ServerMessageT
   return (
     <div
       className={cn(
-        'my-2 overflow-hidden rounded-lg border bg-card text-sm shadow-sm transition-colors',
+        'my-2 overflow-hidden rounded-lg border bg-card text-sm transition-colors',
         running ? 'border-ccnu-blue/40' : failed ? 'border-destructive/40' : 'border-border',
       )}
     >

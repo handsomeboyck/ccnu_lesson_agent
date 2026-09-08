@@ -30,7 +30,7 @@ export function ThinkingCard({ part }: { part: ReasoningPartLike }) {
   )
 }
 
-/** 流式等待指示：助手已受理、尚无任何 part 时显示。 */
+/** 流式等待指示：助手已受理、尚无任何 part 时显示（三点跳动 + 品牌色脉冲）。 */
 export function ThinkingIndicator() {
   return (
     <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
@@ -38,7 +38,12 @@ export function ThinkingIndicator() {
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ccnu-blue opacity-60" />
         <span className="relative inline-flex size-2 rounded-full bg-ccnu-blue" />
       </span>
-      <span className="text-xs">学伴思考中…</span>
+      <span className="text-xs">学伴思考中</span>
+      <span className="flex items-center gap-0.5 pl-0.5">
+        <span className="thinking-dot" />
+        <span className="thinking-dot" style={{ animationDelay: '0.2s' }} />
+        <span className="thinking-dot" style={{ animationDelay: '0.4s' }} />
+      </span>
     </div>
   )
 }
