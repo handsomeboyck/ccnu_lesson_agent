@@ -148,7 +148,7 @@ export default function LibraryPage() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="hidden grid-cols-[minmax(0,1fr)_90px_110px_160px_40px] items-center gap-2 border-b border-border bg-muted/50 px-4 py-2.5 text-xs font-medium text-muted-foreground sm:grid">
           <span>文件名</span>
           <span>大小</span>

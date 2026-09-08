@@ -751,27 +751,28 @@ export default function ChatPage() {
           )}
 
           {messages.length === 0 && !streaming && (
-            <div className="mx-auto mt-10 max-w-2xl">
-              <div className="mb-8 text-center">
-                <div className="mx-auto mb-3 flex size-16 items-center justify-center rounded-full bg-ccnu-blue/10 font-display text-3xl font-bold text-ccnu-blue">
+            <div className="mx-auto mt-8 max-w-2xl">
+              <div className="mb-5 text-center">
+                <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-ccnu-blue/10 font-display text-xl font-bold text-ccnu-blue">
                   华
                 </div>
-                <h2 className="font-display text-xl font-bold">华中师范大学 · 智能助教</h2>
+                <h2 className="font-display text-lg font-bold">华中师范大学 · 智能助教</h2>
                 <p className="mt-1 text-xs text-ccnu-gold-deep">求实创新 · 立德树人</p>
-                <p className="mt-2 text-xs text-muted-foreground">
+                <p className="mt-1.5 text-xs text-muted-foreground">
                   多轮对话、实时回复、输入 <code>/</code> 唤起快捷功能、生成可下载的学习文件
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              {/* 灵犀式：输入框上方一排快捷功能胶囊（非大卡片） */}
+              <div className="flex flex-wrap items-center justify-center gap-2">
                 {WELCOME_GUIDES.map((g) => (
                   <button
                     key={g.title}
-                    className="group rounded-xl border border-border bg-card p-3.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-ccnu-blue/40 hover:shadow-md"
+                    title={g.desc}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E6EB] bg-white px-3 py-1.5 text-xs text-[#333] transition-colors hover:border-ccnu-blue/50 hover:text-ccnu-blue"
                     onClick={() => void handleSend(g.prompt)}
                   >
-                    <g.icon className="mb-2 size-5 text-ccnu-blue" />
-                    <div className="text-sm font-semibold">{g.title}</div>
-                    <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{g.desc}</div>
+                    <g.icon className="size-3.5" />
+                    {g.title}
                   </button>
                 ))}
               </div>
@@ -814,7 +815,7 @@ export default function ChatPage() {
                 ))}
               </div>
             )}
-            <div className="flex items-end gap-2 rounded-xl border border-border bg-background p-2 shadow-sm transition-all duration-200 focus-within:border-ccnu-blue/60 focus-within:bg-card focus-within:shadow-md focus-within:ring-4 focus-within:ring-ccnu-blue/10">
+            <div className="flex items-end gap-2 rounded-[20px] border border-border bg-white p-2 shadow-[0_1px_3px_rgba(20,35,60,0.06)] transition-shadow duration-200 focus-within:border-ccnu-blue/50 focus-within:shadow-[0_2px_10px_rgba(27,75,155,0.12)] focus-within:ring-4 focus-within:ring-ccnu-blue/10">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1013,16 +1014,18 @@ function MessageRow({
       >
         {isUser ? userName : '艺'}
       </div>
-      <div className={`min-w-0 max-w-[85%] ${isUser ? 'text-right' : 'flex-1'}`}>
+      <div className={`min-w-0 ${isUser ? 'max-w-[85%] text-right' : 'flex-1'}`}>
         {isUser ? (
-          <div className="inline-block rounded-2xl rounded-tr-sm bg-ccnu-blue px-3.5 py-2 text-left text-sm text-white shadow-sm">
+          // 用户消息：浅灰胶囊（灵犀风格——克制，不抢眼）
+          <div className="inline-block rounded-2xl rounded-tr-md bg-[#F2F3F5] px-4 py-2 text-left text-[15px] leading-relaxed text-[#1D1D1F]">
             {m.parts
               .filter((p) => p.type === 'text')
               .map((p) => (p as { text: string }).text)
               .join('')}
           </div>
         ) : (
-          <div className="rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3 shadow-sm">
+          // 助手消息：去气泡化文本流（灵犀风格——像文档，不包卡片）
+          <div className="min-w-0">
             {parts.length === 0 && <ThinkingIndicator />}
             {parts.map((p, i) => {
               if (p.type === 'text') return <ChatMarkdown key={i} text={p.text ?? ''} />

@@ -262,7 +262,7 @@ export default function ArtifactsPage() {
             return (
               <div
                 key={a.id}
-                className="group overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                className="group overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-ccnu-blue/30"
               >
                 <button
                   className="flex w-full flex-col text-left"

@@ -74,17 +74,17 @@
   --ccnu-gold-deep: #a37f2f;
   --ccnu-gold-soft: rgba(201, 162, 75, 0.14);
 
-  /* 表面 & 文本 */
-  --bg: #f4f6fa;
+  /* 表面 & 文本（灵犀式：更白更中性） */
+  --bg: #f7f8fa;
   --bg-sidebar: #ffffff;
   --bg-input: #ffffff;
-  --bg-hover: #eef1f7;
+  --bg-hover: #eef1f6;
   --bg-code: #f3f5fa;
   --surface-0: #ffffff;
   --surface-1: #fafbfd;
-  --border: #e2e7f0;
+  --border: #e4e8ef;
   --border-strong: #c9d3e2;
-  --text: #1e2937;
+  --text: #1d1d1f;
   --text-dim: #5c6a7f;
   --text-faint: #8a95a8;
 
