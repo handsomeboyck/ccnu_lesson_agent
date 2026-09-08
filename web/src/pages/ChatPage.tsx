@@ -24,6 +24,8 @@ import {
   Trash2,
   Pencil,
   MoreHorizontal,
+  PanelLeftOpen,
+  X,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -176,6 +178,8 @@ export default function ChatPage() {
   const [error, setError] = useState('')
   const [slashMenu, setSlashMenu] = useState(false)
   const [mobileMenu, setMobileMenu] = useState(false) // 移动端头部 ⋯ 菜单
+  const [mobileConvOpen, setMobileConvOpen] = useState(false) // 移动端历史会话面板
+  const [isMobile, setIsMobile] = useState(false) // 移动端断点（占位符等按设备分流）
 
   const convIdRef = useRef('')
   const modeRef = useRef<string>('companion')
@@ -280,6 +284,15 @@ export default function ChatPage() {
   useEffect(() => {
     localStorage.setItem('ccnu-last-draft', input)
   }, [input])
+
+  // 移动端断点检测（占位符等按设备分流）
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)')
+    const on = () => setIsMobile(mq.matches)
+    on()
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
 
   const newChat = useCallback(() => {
     if (streaming) stop()
@@ -584,6 +597,15 @@ export default function ChatPage() {
       {/* 主区 */}
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card px-4">
+          {/* 移动端：历史会话入口 */}
+          <button
+            className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
+            onClick={() => setMobileConvOpen(true)}
+            title="历史会话"
+            aria-label="历史会话"
+          >
+            <PanelLeftOpen className="size-5" />
+          </button>
           <span className="truncate text-sm font-semibold">{activeConv ? activeConv.title : '新对话'}</span>
           <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${modePillClass(activeConv ? activeConv.mode : draftMode)}`}>
             {MODE_LABELS[activeConv ? activeConv.mode : draftMode]}
@@ -817,7 +839,13 @@ export default function ChatPage() {
                 value={input}
                 onChange={(e) => onInputChange(e.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder={pendingAsk ? '回答助手的问题…' : '输入消息… 输入 / 唤起快捷功能，Enter 发送'}
+                placeholder={
+                  pendingAsk
+                    ? '回答助手的问题…'
+                    : isMobile
+                      ? '输入消息…'
+                      : '输入消息… 输入 / 唤起快捷功能，Enter 发送'
+                }
                 rows={1}
                 className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none caret-ccnu-blue transition-[height] duration-150 placeholder:text-muted-foreground"
               />
@@ -855,6 +883,88 @@ export default function ChatPage() {
         </div>
       </main>
       </div>
+      {/* 移动端历史会话面板 */}
+      {mobileConvOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-card lg:hidden">
+          <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ccnu-blue font-display text-sm font-bold text-white">
+              华
+            </div>
+            <div className="text-sm font-bold">历史会话</div>
+            <Button
+              size="sm"
+              className="ml-auto"
+              onClick={() => {
+                newChat()
+                setMobileConvOpen(false)
+              }}
+            >
+              <Plus className="size-4" /> 新对话
+            </Button>
+            <button
+              className="rounded p-1.5 text-muted-foreground hover:bg-accent"
+              onClick={() => setMobileConvOpen(false)}
+              aria-label="关闭"
+            >
+              <X className="size-5" />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+            {groupByDay(conversations).map((g) => (
+              <div key={g.label} className="mb-2">
+                <div className="px-2.5 py-1 text-[11px] font-medium text-muted-foreground">{g.label}</div>
+                {g.items.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-sm ${
+                      c.id === activeId
+                        ? 'bg-ccnu-blue/10 text-ccnu-blue-deep'
+                        : 'text-foreground hover:bg-accent'
+                    }`}
+                    onClick={() => {
+                      void openConversation(c.id)
+                      setMobileConvOpen(false)
+                    }}
+                  >
+                    <span className="text-muted-foreground">
+                      {(() => {
+                        const Icon = MODE_ICONS[c.mode]
+                        return Icon ? <Icon className="size-4" /> : <span>💬</span>
+                      })()}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                    <span className="flex shrink-0 gap-1">
+                      <button
+                        className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        title="重命名"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void handleRename(c)
+                        }}
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
+                        title="删除"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void handleDelete(c)
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {conversations.length === 0 && (
+              <div className="py-10 text-center text-sm text-muted-foreground">暂无历史会话</div>
+            )}
+          </div>
+        </div>
+      )}
       {/* 移动端底部导航 */}
       <MobileTabBar />
     </div>

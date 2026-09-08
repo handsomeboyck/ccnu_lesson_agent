@@ -56,6 +56,26 @@ try {
   console.log('侧栏隐藏(mobile):', sidebarVisible ? '✗ 仍显示' : '✓ 已隐藏')
   console.log('底部导航(4 Tab):', ['对话', '资料库', '我的文件', '学习功能'].every((t) => navText.includes(t)) ? '✓' : `✗ ${navText}`)
 
+  // 移动端占位符：短文案单行
+  const ph = await page.evaluate(() => document.querySelector('textarea')?.placeholder ?? '')
+  console.log('移动端占位符(短):', ph === '输入消息…' ? '✓' : `✗ ${ph}`)
+
+  // 历史会话面板：新对话 + 历史列表
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => x.getAttribute('aria-label') === '历史会话')
+    b?.click()
+  })
+  await new Promise((r) => setTimeout(r, 500))
+  const panelText = await page.evaluate(() => document.body.innerText)
+  console.log('历史会话面板打开:', panelText.includes('历史会话') && panelText.includes('新对话') ? '✓' : '✗')
+  console.log('面板含空态或列表:', panelText.includes('暂无历史会话') || panelText.includes('今天') ? '✓' : '✗')
+  // 关闭面板
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => x.getAttribute('aria-label') === '关闭')
+    b?.click()
+  })
+  await new Promise((r) => setTimeout(r, 300))
+
   // 头部 ⋯ 菜单（新对话态：含模式选择 + 退出）
   await page.evaluate(() => {
     const b = [...document.querySelectorAll('button')].find((x) => x.getAttribute('aria-label') === '更多')
