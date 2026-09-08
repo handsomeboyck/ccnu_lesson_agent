@@ -9,6 +9,7 @@ import SkillsPage from './pages/SkillsPage'
 import LibraryPage from './pages/LibraryPage'
 import ArtifactsPage from './pages/ArtifactsPage'
 import MonitorPage from './pages/MonitorPage'
+import SpikePage from './pages/SpikePage'
 
 /** 已登录但用户信息缺失时先拉取 /me 恢复会话。 */
 function AuthBootstrap({ children }: { children: ReactNode }) {
@@ -119,6 +120,7 @@ export default function App() {
             </RequireRole>
           }
         />
+        <Route path="/spike" element={<SpikePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthBootstrap>

@@ -31,6 +31,7 @@ type msgView struct {
 	Role      string               `json:"role"`
 	Content   string               `json:"content"`
 	Artifacts []skill.ArtifactView `json:"artifacts,omitempty"` // 该消息关联产物（历史回看）
+	ToolSteps []toolStepRecord     `json:"tool_steps,omitempty"` // 工具执行轨迹（历史回看工具卡片）
 	CreatedAt time.Time            `json:"created_at"`
 }
 
@@ -44,6 +45,12 @@ func toMsgView(m *store.Message) msgView {
 		var arts []skill.ArtifactView
 		if json.Unmarshal([]byte(m.ArtifactsJSON), &arts) == nil && len(arts) > 0 {
 			v.Artifacts = arts
+		}
+	}
+	if m.ToolStepsJSON != "" {
+		var steps []toolStepRecord
+		if json.Unmarshal([]byte(m.ToolStepsJSON), &steps) == nil && len(steps) > 0 {
+			v.ToolSteps = steps
 		}
 	}
 	return v

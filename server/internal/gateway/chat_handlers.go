@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,8 +38,10 @@ type chatRequest struct {
 	Attachments    []string `json:"attachments"` // 本次消息附带的资料库文档 id
 }
 
-// stream 事件协议见 Agent.md：
-// meta → (tool_call / tool_result)* → delta* → done | error
+// stream 输出 AI SDK UI message stream v1（x-vercel-ai-ui-message-stream: v1）：
+// data: {start} → data: {text-start/text-delta/text-end}* + data: {tool-input-*/tool-output-*}
+// + data: {data-ccnu}（meta/tool_call/tool_result/ask/done 旁路）→ data: {finish} → data: [DONE]
+// 协议详情见 Agent.md §6。
 func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	claims := claimsFrom(r.Context())
 
@@ -104,7 +107,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		history[len(history)-1].Content = inject + "\n\n" + history[len(history)-1].Content
 	}
 
-	// 4. SSE 头
+	// 4. 流式响应头（AI SDK UI message stream v1）
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
@@ -114,11 +117,13 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	w.Header().Set("x-vercel-ai-ui-message-stream", "v1")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	// 首次 meta 事件（前端据此更新会话 id）
-	writeSSE(w, "meta", map[string]string{"conversation_id": conv.ID})
+	// 首个 chunk：消息开始（前端据此更新会话 id）
+	writeUIChunk(w, map[string]any{"type": "start", "messageId": conv.ID})
+	writeUIData(w, map[string]any{"type": "meta", "conversation_id": conv.ID})
 	flusher.Flush()
 
 	// 5. 驱动 Agent（LLM ↔ Skill 工具循环）
@@ -137,7 +142,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	evCh, err := agent.Run(r.Context(), c.provider, c.registry, env, conv.Mode, c.model, history)
 	if err != nil {
-		writeSSE(w, "error", map[string]string{"code": "internal", "message": err.Error()})
+		writeUIError(w, err.Error())
 		flusher.Flush()
 		return
 	}
@@ -146,32 +151,62 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	var usage *model.Usage
 	var pendingAsk *skill.Ask             // ask_user 触发：等待学生回答
 	var msgArtifacts []skill.ArtifactView // 本轮产生的持久化产物（写入 assistant 消息供历史回看）
-	toolCalls := map[string]int{}
-	errorCode, errorMsg := "", ""
+	// 工具执行轨迹（持久化到 assistant 消息，历史回看工具卡片）
+	var toolSteps []toolStepRecord
+	toolStartAt := map[string]time.Time{} // name#seq → 开始时间
+	toolCalls := map[string]int{}         // name → 已发起次数（兼作指标）
+	textStarted := false                  // 是否已输出 text-start（结束需补 text-end）
+	errorMsg := ""
+	const textPartID = "text" // 单流内文本 part 的固定 id（start/delta/end 关联）
 
 	for ev := range evCh {
 		switch ev.Kind {
 		case agent.EventDelta:
 			sb.WriteString(ev.Content)
-			writeSSE(w, "delta", map[string]string{"text": ev.Content})
+			if !textStarted {
+				writeUIChunk(w, map[string]any{"type": "text-start", "id": textPartID})
+				textStarted = true
+			}
+			writeUIChunk(w, map[string]any{"type": "text-delta", "id": textPartID, "delta": ev.Content})
 			flusher.Flush()
 		case agent.EventToolCall:
 			if ev.Tool != nil {
-				writeSSE(w, "tool_call", map[string]any{
-					"id":        ev.Tool.ID,
-					"name":      ev.Tool.Name,
-					"arguments": ev.Tool.Arguments,
+				// 原生工具 chunk：input-start + input-available（providerExecuted=服务端已执行）
+				writeUIChunk(w, map[string]any{
+					"type":       "tool-input-start",
+					"toolCallId": ev.Tool.ID,
+					"toolName":   ev.Tool.Name,
 				})
-				flusher.Flush()
+				var args any
+				if err := json.Unmarshal(ev.Tool.Arguments, &args); err != nil {
+					args = string(ev.Tool.Arguments)
+				}
+				writeUIChunk(w, map[string]any{
+					"type":              "tool-input-available",
+					"toolCallId":        ev.Tool.ID,
+					"toolName":          ev.Tool.Name,
+					"input":             args,
+					"providerExecuted":  true,
+				})
 				toolCalls[ev.Tool.Name]++
+				key := ev.Tool.Name + "#" + strconv.Itoa(toolCalls[ev.Tool.Name])
+				toolStartAt[key] = time.Now()
+				toolSteps = append(toolSteps, toolStepRecord{Name: ev.Tool.Name, CallID: ev.Tool.ID})
+				flusher.Flush()
 			}
 		case agent.EventToolResult:
-			payload := map[string]any{
-				"name":    ev.Tool.Name,
-				"summary": ev.Summary,
+			// 由轨迹记录取 toolCallId（tool_result 事件不携带 Tool 引用）
+			callID := ""
+			for i := len(toolSteps) - 1; i >= 0; i-- {
+				if toolSteps[i].Name == ev.Tool.Name && toolSteps[i].Summary == "" {
+					callID = toolSteps[i].CallID
+					break
+				}
 			}
+			// 原生工具 chunk：output-available（providerExecuted=服务端已执行）
+			output := map[string]any{"summary": ev.Summary}
 			if len(ev.Artifacts) > 0 {
-				payload["artifacts"] = ev.Artifacts
+				output["artifacts"] = ev.Artifacts
 				// 收集持久化产物（有 id）用于写入本条 assistant 消息（历史回看）
 				for _, a := range ev.Artifacts {
 					if a.ID != "" {
@@ -179,12 +214,31 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			writeSSE(w, "tool_result", payload)
+			writeUIChunk(w, map[string]any{
+				"type":             "tool-output-available",
+				"toolCallId":       callID,
+				"output":           output,
+				"providerExecuted": true,
+			})
+			// 回填轨迹：最近一条同名未回填记录
+			for i := len(toolSteps) - 1; i >= 0; i-- {
+				if toolSteps[i].Name == ev.Tool.Name && toolSteps[i].Summary == "" {
+					toolSteps[i].Summary = ev.Summary
+					if len(ev.Artifacts) > 0 {
+						toolSteps[i].Artifacts = append([]skill.ArtifactView(nil), ev.Artifacts...)
+					}
+					if t, ok := toolStartAt[ev.Tool.Name+"#"+strconv.Itoa(toolCalls[ev.Tool.Name])]; ok {
+						toolSteps[i].DurationMs = time.Since(t).Milliseconds()
+					}
+					break
+				}
+			}
 			flusher.Flush()
 		case agent.EventAsk:
 			pendingAsk = &skill.Ask{Question: ev.Question, Options: ev.Options}
-			// 问题本身也作为一条可见消息给前端（独立事件）
-			writeSSE(w, "ask", map[string]any{
+			// 问题本身也作为一条可见消息给前端（自定义 data chunk）
+			writeUIData(w, map[string]any{
+				"type":     "ask",
 				"question": ev.Question,
 				"options":  ev.Options,
 			})
@@ -192,11 +246,16 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		case agent.EventEnd:
 			usage = ev.Usage
 		case agent.EventError:
-			errorCode, errorMsg = "internal", ev.Err.Error()
+			errorMsg = ev.Err.Error()
 		}
 		if r.Context().Err() != nil { // 客户端断开
 			break
 		}
+	}
+
+	if textStarted {
+		writeUIChunk(w, map[string]any{"type": "text-end", "id": textPartID})
+		flusher.Flush()
 	}
 
 	// 记录 Agent 指标（异步写库：用独立 ctx，避免客户端断开后 insert 失败）
@@ -228,45 +287,68 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			b, _ := json.Marshal(msgArtifacts)
 			assistantMsg.ArtifactsJSON = string(b)
 		}
+		if len(toolSteps) > 0 {
+			b, _ := json.Marshal(toolSteps)
+			assistantMsg.ToolStepsJSON = string(b)
+		}
 		if err := c.store.CreateMessage(r.Context(), assistantMsg); err == nil {
 			assistantID = assistantMsg.ID
 			_ = c.store.TouchConversation(r.Context(), conv.ID, claims.UserID, time.Now())
 		}
 	}
 
-	// 7. 收尾事件
+	// 7. 收尾 chunk
 	if errorMsg != "" && sb.Len() == 0 && pendingAsk == nil {
-		writeSSE(w, "error", map[string]string{"code": errorCode, "message": errorMsg})
+		writeUIError(w, errorMsg)
 	} else if sb.Len() > 0 || pendingAsk != nil {
-		writeSSE(w, "done", map[string]any{
+		writeUIData(w, map[string]any{
+			"type":        "done",
 			"message_id":  assistantID,
 			"usage":       usage,
 			"duration_ms": time.Since(start).Milliseconds(),
 		})
+		finishReason := "stop"
+		if errorMsg != "" {
+			finishReason = "error"
+		}
+		writeUIChunk(w, map[string]any{"type": "finish", "finishReason": finishReason})
+		writeUIChunk(w, "DONE")
 	} else {
-		writeSSE(w, "error", map[string]string{"code": "empty", "message": "no content generated"})
+		writeUIError(w, "no content generated")
 	}
 	flusher.Flush()
 }
 
-// writeSSE 按 SSE 规范输出一条命名事件：event 行在前，data 逐行，空行结束。
-func writeSSE(w http.ResponseWriter, event string, data any) {
-	var payload string
-	switch v := data.(type) {
-	case string:
-		payload = v
-	default:
-		b, err := json.Marshal(data)
-		if err != nil {
-			payload = fmt.Sprintf(`{"error":%q}`, err.Error())
-		} else {
-			payload = string(b)
-		}
+// toolStepRecord 单条工具执行轨迹（持久化到 assistant 消息，历史回看工具卡片）。
+type toolStepRecord struct {
+	CallID     string               `json:"call_id,omitempty"`
+	Name       string               `json:"name"`
+	Summary    string               `json:"summary"`
+	DurationMs int64                `json:"duration_ms"`
+	Artifacts  []skill.ArtifactView `json:"artifacts,omitempty"`
+}
+
+// ---- AI SDK UI message stream v1 输出辅助 ----
+// 帧格式：标准 SSE `data: {json}\n\n`，收尾 `data: [DONE]\n\n`；
+// 响应头 `x-vercel-ai-ui-message-stream: v1`。前端由 Vercel AI SDK useChat 消费。
+
+// writeUIChunk 输出一个 UI message chunk（map 或 [DONE] 终止符）。
+func writeUIChunk(w http.ResponseWriter, chunk any) {
+	if s, ok := chunk.(string); ok && s == "DONE" {
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		return
 	}
-	fmt.Fprintf(w, "event: %s\n", event)
-	lines := strings.Split(payload, "\n")
-	for _, line := range lines {
-		fmt.Fprintf(w, "data: %s\n", line)
-	}
-	fmt.Fprint(w, "\n")
+	b, _ := json.Marshal(chunk)
+	fmt.Fprintf(w, "data: %s\n\n", b)
+}
+
+// writeUIData 输出自定义数据 chunk（type 以 data- 开头，SDK 归入 message.parts 的 data part）。
+func writeUIData(w http.ResponseWriter, payload any) {
+	writeUIChunk(w, map[string]any{"type": "data-ccnu", "data": payload})
+}
+
+// writeUIError 输出错误 chunk 并收尾 [DONE]。
+func writeUIError(w http.ResponseWriter, message string) {
+	writeUIChunk(w, map[string]any{"type": "error", "errorText": message})
+	writeUIChunk(w, "DONE")
 }

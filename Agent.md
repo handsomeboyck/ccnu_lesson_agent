@@ -337,16 +337,27 @@ metric_events(id, ts, kind(chat|tool|codex), mode, status, skill, prompt_tokens,
 | GET | `/v1/monitor/overview` · `/health` · `/conversations…` | 监控/审计（**仅 admin**，见 §4.6） |
 | GET | `/healthz` | 健康检查 |
 
-### 6.2 SSE 事件（POST /v1/chat）
-```
-event: meta        {conversation_id}              # 新会话时返回 id
-event: delta       {text}                         # 流式文本
-event: tool_call   {id, name, arguments}          # Skill 开始（卡片 ⚙）
-event: tool_result {name, summary, artifacts?}    # Skill 完成（卡片 ✓ + 产物清单）
-event: ask         {question, options}            # ask_user：等待学生回答
-event: done        {message_id, usage, duration_ms}
-event: error       {code, message}
-```
+### 6.2 流式协议（POST /v1/chat，AI SDK UI message stream v1）
+> 传输：SSE 帧 `data: {json}\n\n`，响应头 `x-vercel-ai-ui-message-stream: v1`，
+> 收尾 `data: [DONE]`；前端由 Vercel AI SDK v7 `useChat` + `DefaultChatTransport` 消费
+> （请求经 `prepareSendMessagesRequest` 适配为 `{conversation_id, content, mode}`）。
+> chunk 词汇表（zod 校验）：start / text-start·text-delta·text-end / tool-input-start·
+> tool-input-available·tool-output-available / data-ccnu（自定义载荷）/ finish / error。
+
+| chunk type | 字段 | 说明 |
+|---|---|---|
+| `start` | messageId | 流开始（新会话时返回 conversation_id） |
+| `text-start` / `text-delta` / `text-end` | id, delta | 流式文本三件套（可扩展 reasoning-* 展示思考） |
+| `tool-input-start` | toolCallId, toolName | Skill 开始（工具卡片运行态） |
+| `tool-input-available` | toolCallId, toolName, input, providerExecuted | 参数就绪（服务端已执行=true） |
+| `tool-output-available` | toolCallId, output{summary,artifacts?} | Skill 完成（卡片完成态 + 产物清单） |
+| `data-ccnu` | data{type: meta/tool_call/tool_result/ask/done} | 自定义旁路载荷 |
+| `finish` | finishReason (stop/error) | 流结束 |
+| `error` | errorText | 错误（随后 [DONE]） |
+
+> 历史回看：`GET /v1/conversations/{id}/messages` 的 assistant 消息带
+> `artifacts`（产物摘要）与 `tool_steps`（工具执行轨迹 [{call_id,name,summary,duration_ms,artifacts}]），
+> 由前端渲染为持久化工具卡片。
 
 ---
 

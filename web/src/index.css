@@ -1,3 +1,39 @@
+/* ---- Tailwind v4 + 主题令牌（新组件体系；旧类名渐进替换） ---- */
+@import 'tailwindcss';
+
+@theme {
+  /* 华中师范大学 · 学术典雅色板（与下方 CSS 变量同源） */
+  --color-ccnu-blue: #1b4b9b;
+  --color-ccnu-blue-hover: #2f6db4;
+  --color-ccnu-blue-deep: #163c7c;
+  --color-ccnu-gold: #c9a24b;
+  --color-ccnu-gold-deep: #a37f2f;
+
+  /* shadcn 语义令牌 */
+  --color-background: #f4f6fa;
+  --color-foreground: #1e2937;
+  --color-card: #ffffff;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #5c6a7f;
+  --color-border: #e2e7f0;
+  --color-input: #e2e7f0;
+  --color-ring: #1b4b9b;
+  --color-destructive: #c0392b;
+  --color-accent: #eef1f7;
+  --color-accent-foreground: #163c7c;
+  --color-success: #1f8a5f;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', Roboto, Helvetica, Arial, sans-serif;
+  --font-display: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', STSong, SimSun, serif;
+}
+
 /* ---- 基础 ---- */
 * {
   box-sizing: border-box;
