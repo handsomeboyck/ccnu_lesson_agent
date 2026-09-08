@@ -64,8 +64,8 @@ const WELCOME_GUIDES = [
   {
     icon: Search,
     title: '生成学习文件',
-    desc: '一键产出 docx 试卷 / pptx 课件 / 图表 / PDF',
-    prompt: '用 execute_code 生成一份三角函数教案 docx',
+    desc: '一键生成 Word 试卷 / PPT 课件 / 图表 / PDF',
+    prompt: '让 AI 生成一份三角函数教案 Word 文档',
   },
   {
     icon: Library,
@@ -453,19 +453,44 @@ export default function ChatPage() {
             <Plus className="size-4" /> 新对话
           </Button>
         </div>
+        {/* 模式切换（左侧；选中态高亮） */}
+        <div className="px-3 pb-3">
+          <div className="mb-1.5 px-1 text-[11px] font-medium text-muted-foreground">模式</div>
+          <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
+            {(Object.keys(MODE_LABELS) as Mode[]).map((m) => {
+              const Icon = MODE_ICONS[m]
+              const active = draftMode === m
+              return (
+                <button
+                  key={m}
+                  onClick={() => setDraftMode(m)}
+                  title={MODE_LABELS[m]}
+                  className={`flex flex-col items-center gap-1 rounded-md px-1 py-1.5 text-[11px] transition-all ${
+                    active
+                      ? 'bg-ccnu-blue text-white shadow-sm ring-2 ring-ccnu-blue/30'
+                      : 'text-muted-foreground hover:bg-card hover:text-foreground'
+                  }`}
+                >
+                  {Icon && <Icon className="size-4" />}
+                  {MODE_LABELS[m]}
+                </button>
+              )
+            })}
+          </div>
+        </div>
         <nav className="space-y-0.5 px-3">
           <Link to="/library" className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
             <Library className="size-4" /> 我的资料库
           </Link>
           <Link to="/artifacts" className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
-            <FolderOpen className="size-4" /> 产物库
+            <FolderOpen className="size-4" /> 我的文件
           </Link>
           <Link to="/skills" className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
-            <Puzzle className="size-4" /> 技能管理
+            <Puzzle className="size-4" /> 学习功能
           </Link>
           {user?.role === 'admin' && (
             <Link to="/monitor" className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
-              <Activity className="size-4" /> 监控中心
+              <Activity className="size-4" /> 运行监控
             </Link>
           )}
         </nav>
@@ -549,28 +574,12 @@ export default function ChatPage() {
           <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${modePillClass(activeConv ? activeConv.mode : draftMode)}`}>
             {MODE_LABELS[activeConv ? activeConv.mode : draftMode]}
           </span>
-          {!activeConv && (
-            <div className="ml-auto flex items-center gap-1">
-              <span className="text-xs text-muted-foreground">模式：</span>
-              {(Object.keys(MODE_LABELS) as Mode[]).map((m) => (
-                <button
-                  key={m}
-                  className={`rounded-full px-2.5 py-0.5 text-xs ${
-                    draftMode === m ? 'bg-ccnu-blue text-white' : 'text-muted-foreground hover:bg-accent'
-                  }`}
-                  onClick={() => setDraftMode(m)}
-                >
-                  {MODE_LABELS[m]}
-                </button>
-              ))}
-            </div>
-          )}
         </header>
 
-        {/* Skill 面板（新对话时） */}
+        {/* 快捷功能面板（新对话时） */}
         {!activeConv && commands.length > 0 && (
           <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-card px-4 py-2">
-            <span className="text-xs text-muted-foreground">内置 Skill（输入 / 唤起）：</span>
+            <span className="text-xs text-muted-foreground">快捷功能（输入 / 唤起）：</span>
             {commands.map((c) => (
               <button
                 key={c.skill}
@@ -604,7 +613,7 @@ export default function ChatPage() {
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-ccnu-blue/10">
               <div className="rounded-xl border-2 border-dashed border-ccnu-blue bg-card px-8 py-6 text-sm font-medium text-ccnu-blue">
                 <Paperclip className="mr-1.5 inline size-4" />
-                松开以附加文件（pdf / docx / xlsx / txt / md / csv，≤5 个）
+                松开以附加文件（PDF / Word / Excel / 文本，最多 5 个）
               </div>
             </div>
           )}
@@ -618,7 +627,7 @@ export default function ChatPage() {
                 <h2 className="font-display text-xl font-bold">华中师范大学 · 智能学伴</h2>
                 <p className="mt-1 text-xs text-ccnu-gold-deep">求实创新 · 立德树人</p>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  多轮对话、流式输出、输入 <code>/</code> 唤起 Skill、生成可下载的学习文件
+                  多轮对话、实时回复、输入 <code>/</code> 唤起快捷功能、生成可下载的学习文件
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -688,7 +697,7 @@ export default function ChatPage() {
               <button
                 className="rounded-lg p-2 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
                 onClick={() => fileInputRef.current?.click()}
-                title="附加文件（pdf/docx/xlsx/txt/md/csv，可多选）"
+                title="附加文件（PDF / Word / Excel / 文本，可多选）"
                 disabled={streaming || uploading}
               >
                 <Paperclip className="size-4.5" />
@@ -698,7 +707,7 @@ export default function ChatPage() {
                 value={input}
                 onChange={(e) => onInputChange(e.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder={pendingAsk ? '回答助手的问题…' : '输入消息… 输入 / 唤起 Skill，Enter 发送'}
+                placeholder={pendingAsk ? '回答助手的问题…' : '输入消息… 输入 / 唤起快捷功能，Enter 发送'}
                 rows={1}
                 className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none caret-ccnu-blue transition-[height] duration-150 placeholder:text-muted-foreground"
               />

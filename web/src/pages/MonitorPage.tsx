@@ -129,7 +129,7 @@ export default function MonitorPage() {
         <div>
           <h1 className="font-display text-xl font-bold">监控中心</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Agent 运行指标（近 {data?.window_hours ?? 24}h）与服务/宿主状态，每 15 秒自动刷新。
+            Agent 运行情况（近 {data?.window_hours ?? 24} 小时）与服务器状态，每 15 秒自动刷新。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -173,20 +173,20 @@ export default function MonitorPage() {
 
         {/* Agent 指标 */}
         <section className="monitor-section">
-          <h2 className="monitor-h2">Agent 指标（近 24h）</h2>
+          <h2 className="monitor-h2">对话统计（近 24 小时）</h2>
           <div className="stat-grid">
             <StatCard label="对话轮次" value={fmtNum(a?.chats ?? 0)} sub={`成功 ${a?.chat_ok ?? 0} · 错误 ${a?.chat_err ?? 0} · 反问 ${a?.asks ?? 0}`} />
-            <StatCard label="工具调用" value={fmtNum((a?.tools ?? 0) + (a?.codex_runs ?? 0))} sub={`普通工具 ${a?.tools ?? 0} · 沙箱 ${a?.codex_runs ?? 0}`} />
-            <StatCard label="Token 用量" value={fmtNum((a?.prompt_tokens ?? 0) + (a?.completion_tokens ?? 0))} sub={`输入 ${fmtNum(a?.prompt_tokens ?? 0)} · 输出 ${fmtNum(a?.completion_tokens ?? 0)}`} accent="var(--ccnu-blue)" />
+            <StatCard label="自动调用" value={fmtNum((a?.tools ?? 0) + (a?.codex_runs ?? 0))} sub={`普通工具 ${a?.tools ?? 0} · 代码执行 ${a?.codex_runs ?? 0}`} />
+            <StatCard label="模型用量" value={fmtNum((a?.prompt_tokens ?? 0) + (a?.completion_tokens ?? 0))} sub={`输入 ${fmtNum(a?.prompt_tokens ?? 0)} · 输出 ${fmtNum(a?.completion_tokens ?? 0)}`} accent="var(--ccnu-blue)" />
             <StatCard label="平均延迟" value={`${Math.round(a?.avg_latency_ms ?? 0)}ms`} sub={`P50 ${Math.round(a?.p50_ms ?? 0)}ms · P95 ${Math.round(a?.p95_ms ?? 0)}ms`} />
-            <StatCard label="沙箱成功率" value={a && a.codex_runs > 0 ? `${Math.round(((a.codex_ok ?? 0) / a.codex_runs) * 100)}%` : '—'} sub={`${a?.codex_ok ?? 0}/${a?.codex_runs ?? 0} 成功`} accent="var(--success)" />
+            <StatCard label="代码执行成功率" value={a && a.codex_runs > 0 ? `${Math.round(((a.codex_ok ?? 0) / a.codex_runs) * 100)}%` : '—'} sub={`${a?.codex_ok ?? 0}/${a?.codex_runs ?? 0} 成功`} accent="var(--success)" />
             <StatCard label="错误数" value={fmtNum(a?.chat_err ?? 0)} sub="对话级错误" accent={a && a.chat_err ? 'var(--danger)' : undefined} />
           </div>
 
           <div className="monitor-cols">
             {/* 24h 柱状图 */}
             <div className="monitor-panel">
-              <div className="monitor-panel-title">对话与工具调用（逐小时）</div>
+              <div className="monitor-panel-title">对话与自动调用（逐小时）</div>
               <div className="bar-chart" aria-hidden>
                 {buckets.map((b, i) => (
                   <div key={b.hour} className="bar-col" title={`${hourLabel(b.hour)} 对话${b.chats} 工具${b.tool_calls + b.codex_runs}`}>
@@ -221,7 +221,7 @@ export default function MonitorPage() {
                   ))}
                 </div>
               )}
-              <div className="monitor-panel-title" style={{ marginTop: 16 }}>技能 / 工具调用</div>
+              <div className="monitor-panel-title" style={{ marginTop: 16 }}>学习功能 / 自动调用</div>
               {skills.length === 0 ? (
                 <div className="monitor-empty">暂无数据</div>
               ) : (
@@ -243,7 +243,7 @@ export default function MonitorPage() {
 
         {/* 业务审计：全站用户问答 */}
         <section className="monitor-section">
-          <h2 className="monitor-h2">用户对话审计（query / 回答）</h2>
+          <h2 className="monitor-h2">用户对话记录（提问 / 回答）</h2>
           {convErr && <div className="error-banner">⚠ {convErr}</div>}
           <div className="audit-search">
             <input

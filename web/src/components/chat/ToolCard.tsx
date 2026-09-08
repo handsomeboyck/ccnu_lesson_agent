@@ -16,11 +16,26 @@ export interface ToolPartLike {
   title?: string
 }
 
+/** 内部工具名 → 师生友好的展示名。 */
+const TOOL_LABELS: Record<string, string> = {
+  quiz_generator: '出题',
+  explain_topic: '讲解',
+  ask_user: '提问',
+  knowledge_retrieve: '查资料',
+  execute_code: '运行代码',
+  web_search: '搜索',
+  generate_docx: '生成 Word',
+  generate_pptx: '生成 PPT',
+  generate_pdf: '生成 PDF',
+  generate_chart: '画图',
+}
+
 export default function ToolCard({ part }: { part: ToolPartLike | ServerMessageToolStep }) {
   const [open, setOpen] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const isStep = 'call_id' in part || !('toolCallId' in part)
-  const name = isStep ? (part as ServerMessageToolStep).name : (part as ToolPartLike).type.replace(/^tool-/, '')
+  const rawName = isStep ? (part as ServerMessageToolStep).name : (part as ToolPartLike).type.replace(/^tool-/, '')
+  const name = TOOL_LABELS[rawName] ?? rawName // 内部工具名 → 师生友好名称
   const state = isStep ? 'output-available' : ((part as ToolPartLike).state ?? 'input-available')
   const input = isStep ? undefined : (part as ToolPartLike).input
   const output = isStep ? { summary: (part as ServerMessageToolStep).summary, artifacts: (part as ServerMessageToolStep).artifacts } : (part as ToolPartLike).output
@@ -64,7 +79,7 @@ export default function ToolCard({ part }: { part: ToolPartLike | ServerMessageT
           {running ? (
             <span className="inline-flex items-center gap-1 font-medium text-ccnu-blue">
               <Loader2 className="size-3 animate-spin" />
-              {generating ? '正在生成调用参数…' : '执行中…'} {elapsed}s
+              {generating ? '正在准备…' : '执行中…'} {elapsed}s
             </span>
           ) : failed ? (
             '执行失败'

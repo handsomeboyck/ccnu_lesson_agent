@@ -61,12 +61,12 @@ try {
   await page.goto('http://localhost:5173/artifacts', { waitUntil: 'domcontentloaded' })
   await new Promise((r) => setTimeout(r, 1000))
   text = await page.evaluate(() => document.body.innerText)
-  console.log('产物库页:', text.includes('产物库') ? '✓' : '✗')
+  console.log('我的文件页:', text.includes('我的文件') ? '✓' : '✗')
 
   await page.goto('http://localhost:5173/skills', { waitUntil: 'domcontentloaded' })
   await new Promise((r) => setTimeout(r, 1200))
   text = await page.evaluate(() => document.body.innerText)
-  console.log('技能页:', text.includes('技能管理') && (text.includes('文档') || text.includes('原语') || text.includes('加载中')) ? '✓' : '✗')
+  console.log('学习功能页:', text.includes('学习功能') && (text.includes('自定义') || text.includes('内置') || text.includes('加载中')) ? '✓' : '✗')
 
   await page.goto('http://localhost:5173/monitor', { waitUntil: 'domcontentloaded' })
   await new Promise((r) => setTimeout(r, 1200))

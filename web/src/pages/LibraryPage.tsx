@@ -108,7 +108,7 @@ export default function LibraryPage() {
         <div>
           <h1 className="font-display text-xl font-bold">我的资料库</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            上传 pdf / docx / xlsx / txt，自动解析并建立索引。对话中问「根据我上传的资料…」即可检索引用（带出处）。
+            上传 PDF / Word / Excel / 文本文件，AI 会自动读取内容。对话中问「根据我上传的资料…」，AI 会基于资料作答并注明出处。
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -121,9 +121,9 @@ export default function SkillsPage() {
     <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-xl font-bold">技能管理</h1>
+          <h1 className="font-display text-xl font-bold">学习功能</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Skill = SKILL.md 文档（Claude 风格）。新增/修改即生效，无需重启。
+            在这里添加和管理 AI 的快捷功能：每个功能一份说明文档，保存后立即生效，无需重启。
             {canManage ? ' 你是教师/管理员，可增删改。' : ' 仅教师/管理员可增删改（当前可查看）。'}
           </p>
         </div>
@@ -176,9 +176,9 @@ export default function SkillsPage() {
                 <FileCode2 className="size-3.5 text-muted-foreground" />
                 {s.name}
                 {s.doc ? (
-                  <span className="rounded-full bg-ccnu-blue/10 px-1.5 py-0.5 text-[10px] text-ccnu-blue">文档</span>
+                  <span className="rounded-full bg-ccnu-blue/10 px-1.5 py-0.5 text-[10px] text-ccnu-blue">自定义</span>
                 ) : (
-                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">原语</span>
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">内置</span>
                 )}
                 {canManage && !s.primitive && (
                   <button
@@ -218,7 +218,7 @@ export default function SkillsPage() {
                 spellCheck={false}
               />
               <p className="border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
-                SKILL.md 格式：YAML frontmatter（name/description/commands）+ Markdown 执行指引。
+                模板说明：顶部填写功能名称与简介（name / description / commands），正文写清楚何时使用、如何执行。
               </p>
             </>
           ) : (

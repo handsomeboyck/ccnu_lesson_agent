@@ -184,9 +184,9 @@ export default function ArtifactsPage() {
     <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-xl font-bold">产物库</h1>
+          <h1 className="font-display text-xl font-bold">我的文件</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Python 沙箱 / Skill 生成的图片、CSV、文本等产物，自动保存在这里（对话内也可即时预览）。
+            AI 生成的图片和文件会自动保存在这里，对话中也能随时查看。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -246,7 +246,7 @@ export default function ArtifactsPage() {
           <FolderOpen className="mx-auto mb-3 size-10 text-muted-foreground/50" />
           <div className="text-sm font-medium">这里还没有产物</div>
           <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">
-            在对话里让 AI 用 Python 画图、处理数据，或生成 docx / pptx / pdf 试卷与课件，产物会自动出现在这里。
+            在对话里让 AI 画图、处理数据，或生成 Word / PPT / PDF 试卷和课件，文件会自动出现在这里。
           </p>
           <Link to="/" className={buttonVariants({ variant: 'default', size: 'sm', className: 'mt-4' })}>
             去对话生成
