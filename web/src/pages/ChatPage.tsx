@@ -478,31 +478,6 @@ export default function ChatPage() {
             <Plus className="size-4" /> 新对话
           </Button>
         </div>
-        {/* 模式切换（左侧；选中态高亮） */}
-        <div className="px-3 pb-3">
-          <div className="mb-1.5 px-1 text-[11px] font-medium text-muted-foreground">模式</div>
-          <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
-            {(Object.keys(MODE_LABELS) as Mode[]).map((m) => {
-              const Icon = MODE_ICONS[m]
-              const active = draftMode === m
-              return (
-                <button
-                  key={m}
-                  onClick={() => setDraftMode(m)}
-                  title={MODE_LABELS[m]}
-                  className={`flex flex-col items-center gap-1 rounded-md px-1 py-1.5 text-[11px] transition-all ${
-                    active
-                      ? 'bg-ccnu-blue text-white shadow-sm ring-2 ring-ccnu-blue/30'
-                      : 'text-muted-foreground hover:bg-card hover:text-foreground'
-                  }`}
-                >
-                  {Icon && <Icon className="size-4" />}
-                  {MODE_LABELS[m]}
-                </button>
-              )
-            })}
-          </div>
-        </div>
         <nav className="space-y-0.5 px-3">
           <Link to="/library" className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
             <Library className="size-4" /> 我的资料库
@@ -599,6 +574,30 @@ export default function ChatPage() {
           <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${modePillClass(activeConv ? activeConv.mode : draftMode)}`}>
             {MODE_LABELS[activeConv ? activeConv.mode : draftMode]}
           </span>
+          {/* 模式切换（右上角；选中态高亮） */}
+          {!activeConv && (
+            <div className="ml-auto flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
+              {(Object.keys(MODE_LABELS) as Mode[]).map((m) => {
+                const Icon = MODE_ICONS[m]
+                const active = draftMode === m
+                return (
+                  <button
+                    key={m}
+                    onClick={() => setDraftMode(m)}
+                    title={MODE_LABELS[m]}
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-all ${
+                      active
+                        ? 'bg-ccnu-blue text-white shadow-sm ring-2 ring-ccnu-blue/30'
+                        : 'text-muted-foreground hover:bg-card hover:text-foreground'
+                    }`}
+                  >
+                    {Icon && <Icon className="size-3.5" />}
+                    {MODE_LABELS[m]}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </header>
 
         {/* 快捷功能面板（新对话时） */}
