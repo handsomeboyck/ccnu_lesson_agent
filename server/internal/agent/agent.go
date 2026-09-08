@@ -33,6 +33,7 @@ type EventKind string
 const (
 	EventDelta      EventKind = "delta"
 	EventReasoning  EventKind = "reasoning" // 思考链增量（reasoning_content）
+	EventToolInput  EventKind = "tool_input" // 工具调用参数增量（流式，前端加载态）
 	EventToolCall   EventKind = "tool_call"
 	EventToolResult EventKind = "tool_result"
 	EventAsk        EventKind = "ask" // 需要向学生提问（暂停等待回答）
@@ -205,6 +206,8 @@ func runLLMLoop(ctx context.Context, prov model.Provider, reg *skill.Registry, e
 			case model.KindReasoning:
 				roundReasoning.WriteString(ev.Content)
 				out <- Event{Kind: EventReasoning, Content: ev.Content}
+			case model.KindToolInput:
+				out <- Event{Kind: EventToolInput, Content: ev.Content, Tool: ev.ToolCall}
 			case model.KindToolCall:
 				if ev.ToolCall != nil {
 					calls = append(calls, *ev.ToolCall)

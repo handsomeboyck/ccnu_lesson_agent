@@ -156,6 +156,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	var toolSteps []toolStepRecord
 	toolStartAt := map[string]time.Time{} // name#seq → 开始时间
 	toolCalls := map[string]int{}         // name → 已发起次数（兼作指标）
+	toolStarted := map[string]bool{}      // toolCallId → 已发出 tool-input-start（参数流式去重）
 	textStarted := false                  // 是否已输出 text-start（结束需补 text-end）
 	reasoningStarted := false             // 思考链 part 状态（start/delta/end 三件套）
 	reasoningEnded := false
@@ -193,15 +194,39 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			}
 			writeUIChunk(w, map[string]any{"type": "text-delta", "id": textPartID, "delta": ev.Content})
 			flusher.Flush()
+		case agent.EventToolInput:
+			// 工具参数流式：首个分片先发 start（结束思考 + 卡片出现），后续分片实时透传
+			if ev.Tool != nil && ev.Tool.ID != "" {
+				if !toolStarted[ev.Tool.ID] {
+					endReasoning()
+					writeUIChunk(w, map[string]any{
+						"type":       "tool-input-start",
+						"toolCallId": ev.Tool.ID,
+						"toolName":   ev.Tool.Name,
+					})
+					toolStarted[ev.Tool.ID] = true
+				}
+				if ev.Content != "" {
+					writeUIChunk(w, map[string]any{
+						"type":           "tool-input-delta",
+						"toolCallId":     ev.Tool.ID,
+						"inputTextDelta": ev.Content,
+					})
+				}
+				flusher.Flush()
+			}
 		case agent.EventToolCall:
 			endReasoning() // 思考结束 → 执行工具（长任务期间工具卡即加载态）
 			if ev.Tool != nil {
-				// 原生工具 chunk：input-start + input-available（providerExecuted=服务端已执行）
-				writeUIChunk(w, map[string]any{
-					"type":       "tool-input-start",
-					"toolCallId": ev.Tool.ID,
-					"toolName":   ev.Tool.Name,
-				})
+				// 若参数未流式（start 未发过），此处补发 start
+				if !toolStarted[ev.Tool.ID] {
+					writeUIChunk(w, map[string]any{
+						"type":       "tool-input-start",
+						"toolCallId": ev.Tool.ID,
+						"toolName":   ev.Tool.Name,
+					})
+					toolStarted[ev.Tool.ID] = true
+				}
 				var args any
 				if err := json.Unmarshal(ev.Tool.Arguments, &args); err != nil {
 					args = string(ev.Tool.Arguments)

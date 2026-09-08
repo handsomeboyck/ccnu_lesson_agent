@@ -26,6 +26,7 @@ export default function ToolCard({ part }: { part: ToolPartLike | ServerMessageT
   const output = isStep ? { summary: (part as ServerMessageToolStep).summary, artifacts: (part as ServerMessageToolStep).artifacts } : (part as ToolPartLike).output
 
   const running = state === 'input-streaming' || state === 'input-available'
+  const generating = state === 'input-streaming' // 模型正在生成调用参数
   const failed = state === 'output-error'
   const artifacts = output?.artifacts?.filter((a) => a.id || a.data) ?? []
   const hasInput = input != null && typeof input === 'object' && Object.keys(input as object).length > 0
@@ -62,7 +63,8 @@ export default function ToolCard({ part }: { part: ToolPartLike | ServerMessageT
         <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
           {running ? (
             <span className="inline-flex items-center gap-1 font-medium text-ccnu-blue">
-              <Loader2 className="size-3 animate-spin" /> 执行中… {elapsed}s
+              <Loader2 className="size-3 animate-spin" />
+              {generating ? '正在生成调用参数…' : '执行中…'} {elapsed}s
             </span>
           ) : failed ? (
             '执行失败'
@@ -80,8 +82,9 @@ export default function ToolCard({ part }: { part: ToolPartLike | ServerMessageT
       {open && (
         <div className="border-t bg-muted/40 px-3 py-2.5">
           {hasInput && (
-            <pre className="mb-2 overflow-x-auto rounded bg-card p-2 font-mono text-[11px] leading-relaxed">
+            <pre className="mb-2 max-h-48 overflow-auto rounded bg-card p-2 font-mono text-[11px] leading-relaxed">
               {JSON.stringify(input, null, 2)}
+              {generating && <span className="cursor-blink">▍</span>}
             </pre>
           )}
           {output?.summary && <div className="mb-1 text-xs text-muted-foreground">{output.summary}</div>}

@@ -104,6 +104,7 @@ type EventKind string
 const (
 	KindDelta      EventKind = "delta"      // 文本增量
 	KindReasoning  EventKind = "reasoning"  // 思考链增量（reasoning_content）
+	KindToolInput  EventKind = "tool_input" // 工具调用参数增量（流式，前端加载态）
 	KindToolCall   EventKind = "tool_call"  // 模型请求调用工具（已聚合完整参数）
 	KindUsage      EventKind = "usage"      // token 用量
 	KindEnd        EventKind = "end"        // 本轮流结束
@@ -341,6 +342,14 @@ func (p *OpenAIProvider) parseStream(ctx context.Context, r io.Reader, out chan<
 				}
 				if tc.Function.Name != "" {
 					frag.name = tc.Function.Name
+				}
+				// 实时转发参数增量（前端 tool-input-streaming 加载态），首个分片同时暴露 id/name
+				if frag.id != "" {
+					out <- Event{
+						Kind:     KindToolInput,
+						Content:  tc.Function.Arguments,
+						ToolCall: &ToolCall{ID: frag.id, Name: frag.name},
+					}
 				}
 				frag.args.WriteString(tc.Function.Arguments)
 			}
