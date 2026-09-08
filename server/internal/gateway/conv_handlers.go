@@ -30,7 +30,8 @@ type msgView struct {
 	ID        string               `json:"id"`
 	Role      string               `json:"role"`
 	Content   string               `json:"content"`
-	Artifacts []skill.ArtifactView `json:"artifacts,omitempty"` // 该消息关联产物（历史回看）
+	Reasoning string               `json:"reasoning,omitempty"`  // 思考链全文（历史回看思考卡片）
+	Artifacts []skill.ArtifactView `json:"artifacts,omitempty"`  // 该消息关联产物（历史回看）
 	ToolSteps []toolStepRecord     `json:"tool_steps,omitempty"` // 工具执行轨迹（历史回看工具卡片）
 	CreatedAt time.Time            `json:"created_at"`
 }
@@ -40,7 +41,7 @@ func toConvView(c *store.Conversation) convView {
 }
 
 func toMsgView(m *store.Message) msgView {
-	v := msgView{ID: m.ID, Role: m.Role, Content: m.Content, CreatedAt: m.CreatedAt}
+	v := msgView{ID: m.ID, Role: m.Role, Content: m.Content, Reasoning: m.Reasoning, CreatedAt: m.CreatedAt}
 	if m.ArtifactsJSON != "" {
 		var arts []skill.ArtifactView
 		if json.Unmarshal([]byte(m.ArtifactsJSON), &arts) == nil && len(arts) > 0 {

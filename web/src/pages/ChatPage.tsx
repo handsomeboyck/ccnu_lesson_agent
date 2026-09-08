@@ -79,6 +79,10 @@ function historyToMessages(msgs: ServerMessage[]): UIMessage[] {
   return msgs.map((m) => {
     const parts: UIMessage['parts'] = []
     if (m.role === 'assistant') {
+      // 思考链（发生顺序：思考 → 工具 → 文本）
+      if (m.reasoning) {
+        parts.push({ type: 'reasoning', text: m.reasoning, state: 'done' } as UIMessage['parts'][number])
+      }
       for (const [i, t] of (m.tool_steps ?? []).entries()) {
         parts.push({
           type: `tool-${t.name}`,

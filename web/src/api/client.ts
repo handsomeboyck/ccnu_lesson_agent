@@ -184,6 +184,7 @@ export interface ServerMessage {
   id: string
   role: 'user' | 'assistant' | 'tool'
   content: string
+  reasoning?: string // 思考链全文（思考模式，历史回看）
   artifacts?: ServerMessageArtifact[]
   tool_steps?: ServerMessageToolStep[]
   created_at: string

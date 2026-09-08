@@ -135,6 +135,7 @@ try {
   const histText = await page.evaluate(() => document.body.innerText)
   console.log('历史文本渲染:', histText.includes('一元二次方程') ? '✓' : '✗')
   console.log('历史工具卡:', histText.includes('quiz_generator') || histText.includes('ask_user') ? '✓' : '✗')
+  console.log('历史思考卡:', histText.includes('思考过程') ? '✓' : '✗')
   console.log('历史提问卡:', histText.includes('学伴想先确认一个问题') ? '✓' : '✗')
   console.log('== 场景4 控制台错误 ==')
   console.log(logs.join('\n') || '(无)')

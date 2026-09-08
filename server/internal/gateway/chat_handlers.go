@@ -159,15 +159,17 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	textStarted := false                  // 是否已输出 text-start（结束需补 text-end）
 	reasoningStarted := false             // 思考链 part 状态（start/delta/end 三件套）
 	reasoningEnded := false
+	var reasoningSb strings.Builder       // 思考链全文（持久化，历史回看）
 	errorMsg := ""
 	const textPartID = "text"  // 单流内文本 part 的固定 id（start/delta/end 关联）
 	const reasoningPartID = "r1" // 单流内思考 part 的固定 id
 
-	// endReasoning 输出 reasoning-end（若还在流式思考中）。
+	// endReasoning 输出 reasoning-end（若还在流式思考中），并允许下一轮重新开始思考 part。
 	endReasoning := func() {
 		if reasoningStarted && !reasoningEnded {
 			writeUIChunk(w, map[string]any{"type": "reasoning-end", "id": reasoningPartID})
 			reasoningEnded = true
+			reasoningStarted = false // 多轮工具循环中新一轮思考可重新 start
 			flusher.Flush()
 		}
 	}
@@ -175,6 +177,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	for ev := range evCh {
 		switch ev.Kind {
 		case agent.EventReasoning:
+			reasoningSb.WriteString(ev.Content)
 			if !reasoningStarted {
 				writeUIChunk(w, map[string]any{"type": "reasoning-start", "id": reasoningPartID})
 				reasoningStarted = true
@@ -191,6 +194,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			writeUIChunk(w, map[string]any{"type": "text-delta", "id": textPartID, "delta": ev.Content})
 			flusher.Flush()
 		case agent.EventToolCall:
+			endReasoning() // 思考结束 → 执行工具（长任务期间工具卡即加载态）
 			if ev.Tool != nil {
 				// 原生工具 chunk：input-start + input-available（providerExecuted=服务端已执行）
 				writeUIChunk(w, map[string]any{
@@ -312,6 +316,9 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		if len(toolSteps) > 0 {
 			b, _ := json.Marshal(toolSteps)
 			assistantMsg.ToolStepsJSON = string(b)
+		}
+		if reasoningSb.Len() > 0 {
+			assistantMsg.Reasoning = reasoningSb.String()
 		}
 		if err := c.store.CreateMessage(r.Context(), assistantMsg); err == nil {
 			assistantID = assistantMsg.ID

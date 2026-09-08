@@ -63,6 +63,7 @@ type Message struct {
 	UsageJSON      string // token 用量序列化
 	ArtifactsJSON  string // 该消息关联的产物摘要（[{id,name,mime}]），供历史回看
 	ToolStepsJSON  string // 该消息的工具执行轨迹（[{name,summary,duration_ms,artifacts}]），供历史回看
+	Reasoning      string // 思考链全文（思考模式 reasoning_content），供历史回看
 	CreatedAt      time.Time
 }
 
