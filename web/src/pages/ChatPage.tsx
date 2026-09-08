@@ -168,6 +168,7 @@ export default function ChatPage() {
   const convIdRef = useRef('')
   const modeRef = useRef<string>('companion')
   const attachRef = useRef<string[]>([])
+  const sendingRef = useRef(false) // 同步发送锁：防止双击/连发产生并发流（会破坏 SDK 消息列表）
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const activeConv = conversations.find((c) => c.id === activeId) ?? null
@@ -270,6 +271,11 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages])
 
+  // 流结束/出错后解锁发送（status 异步更新，配合 sendingRef 同步锁）
+  useEffect(() => {
+    if (status === 'ready' || status === 'error') sendingRef.current = false
+  }, [status])
+
   // ---- 提问状态（从最后一条助手消息的 ask part 派生）----
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
   const askPart = (lastAssistant?.parts ?? []).find(
@@ -280,7 +286,8 @@ export default function ChatPage() {
   const pendingAsk = !streaming && askPart?.data?.question ? askPart.data : null
 
   function answerAsk(option: string) {
-    if (streaming) return
+    if (streaming || sendingRef.current) return
+    sendingRef.current = true
     attachRef.current = []
     void sendMessage({ text: option })
   }
@@ -306,8 +313,9 @@ export default function ChatPage() {
   // ---- 发送 ----
   async function handleSend(rawContent?: string) {
     const content = (rawContent ?? input).trim()
-    if (!accessToken || streaming) return
+    if (!accessToken || streaming || sendingRef.current) return
     if (!content && pendingFiles.length === 0) return
+    sendingRef.current = true
 
     let attachIds: string[] = []
     const failed: string[] = []
@@ -322,6 +330,7 @@ export default function ChatPage() {
       } catch (err) {
         setError(err instanceof Error ? err.message : '附件上传失败')
         setUploading(false)
+        sendingRef.current = false // 上传失败释放发送锁
         return
       } finally {
         setUploading(false)
