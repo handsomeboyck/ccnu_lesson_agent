@@ -26,7 +26,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-please-change-me-to-a-long-random-secret}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com/v1}
-      OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-chat}
+      OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-v4-flash}
+      OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT:-low}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       CODEX_URL: http://codex:9090
     volumes:

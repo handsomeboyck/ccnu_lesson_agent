@@ -32,6 +32,7 @@ type EventKind string
 
 const (
 	EventDelta      EventKind = "delta"
+	EventReasoning  EventKind = "reasoning" // 思考链增量（reasoning_content）
 	EventToolCall   EventKind = "tool_call"
 	EventToolResult EventKind = "tool_result"
 	EventAsk        EventKind = "ask" // 需要向学生提问（暂停等待回答）
@@ -193,6 +194,7 @@ func runLLMLoop(ctx context.Context, prov model.Provider, reg *skill.Registry, e
 			return
 		}
 		var calls []model.ToolCall
+		var roundReasoning strings.Builder // 本轮思考链（工具轮次需回传 reasoning_content）
 		for ev := range evCh {
 			if ctx.Err() != nil {
 				return
@@ -200,6 +202,9 @@ func runLLMLoop(ctx context.Context, prov model.Provider, reg *skill.Registry, e
 			switch ev.Kind {
 			case model.KindDelta:
 				out <- Event{Kind: EventDelta, Content: ev.Content}
+			case model.KindReasoning:
+				roundReasoning.WriteString(ev.Content)
+				out <- Event{Kind: EventReasoning, Content: ev.Content}
 			case model.KindToolCall:
 				if ev.ToolCall != nil {
 					calls = append(calls, *ev.ToolCall)
@@ -216,7 +221,12 @@ func runLLMLoop(ctx context.Context, prov model.Provider, reg *skill.Registry, e
 			out <- Event{Kind: EventEnd, Usage: total}
 			return
 		}
-		msgs = append(msgs, model.Msg{Role: model.RoleAssistant, Content: "", ToolCalls: calls})
+		msgs = append(msgs, model.Msg{
+			Role:       model.RoleAssistant,
+			Content:    "",
+			Reasoning:  roundReasoning.String(), // 携带 tools 时官方要求回传思考链
+			ToolCalls:  calls,
+		})
 
 		// 逐个执行；若某 Skill 返回 Ask（如 ask_user），暂停等学生回答，结束本轮。
 		for _, tc := range calls {

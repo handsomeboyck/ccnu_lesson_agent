@@ -17,6 +17,7 @@ type Config struct {
 	OpenAIAPIKey    string
 	OpenAIBaseURL   string
 	OpenAIModel     string
+	OpenAIReasoningEffort string // 思考模式强度（low/high/max；空 = 关闭；默认 low）
 	DatabaseURL     string // 空 = 使用内存 store（本地开发演示）
 	WebDist         string // 前端静态资源目录（空 = 不托管前端）
 	SkillsDir       string // SKILL.md 技能目录（默认 ./skills）
@@ -72,6 +73,7 @@ func Load() *Config {
 		OpenAIAPIKey:    os.Getenv("OPENAI_API_KEY"),
 		OpenAIBaseURL:   getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
 		OpenAIModel:     getenv("OPENAI_MODEL", "gpt-4o-mini"),
+		OpenAIReasoningEffort: getenv("OPENAI_REASONING_EFFORT", "low"),
 		DatabaseURL:     os.Getenv("DATABASE_URL"),
 		WebDist:         os.Getenv("WEB_DIST"),
 		SkillsDir:       getenv("SKILLS_DIR", "skills"),

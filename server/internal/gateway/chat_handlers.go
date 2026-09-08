@@ -157,12 +157,32 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	toolStartAt := map[string]time.Time{} // name#seq → 开始时间
 	toolCalls := map[string]int{}         // name → 已发起次数（兼作指标）
 	textStarted := false                  // 是否已输出 text-start（结束需补 text-end）
+	reasoningStarted := false             // 思考链 part 状态（start/delta/end 三件套）
+	reasoningEnded := false
 	errorMsg := ""
-	const textPartID = "text" // 单流内文本 part 的固定 id（start/delta/end 关联）
+	const textPartID = "text"  // 单流内文本 part 的固定 id（start/delta/end 关联）
+	const reasoningPartID = "r1" // 单流内思考 part 的固定 id
+
+	// endReasoning 输出 reasoning-end（若还在流式思考中）。
+	endReasoning := func() {
+		if reasoningStarted && !reasoningEnded {
+			writeUIChunk(w, map[string]any{"type": "reasoning-end", "id": reasoningPartID})
+			reasoningEnded = true
+			flusher.Flush()
+		}
+	}
 
 	for ev := range evCh {
 		switch ev.Kind {
+		case agent.EventReasoning:
+			if !reasoningStarted {
+				writeUIChunk(w, map[string]any{"type": "reasoning-start", "id": reasoningPartID})
+				reasoningStarted = true
+			}
+			writeUIChunk(w, map[string]any{"type": "reasoning-delta", "id": reasoningPartID, "delta": ev.Content})
+			flusher.Flush()
 		case agent.EventDelta:
+			endReasoning() // 思考结束 → 正式回答
 			sb.WriteString(ev.Content)
 			if !textStarted {
 				writeUIChunk(w, map[string]any{"type": "text-start", "id": textPartID})
@@ -258,6 +278,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		writeUIChunk(w, map[string]any{"type": "text-end", "id": textPartID})
 		flusher.Flush()
 	}
+	endReasoning() // 流结束时兜底关闭思考 part
 
 	// 记录 Agent 指标（异步写库：用独立 ctx，避免客户端断开后 insert 失败）
 	go func() {

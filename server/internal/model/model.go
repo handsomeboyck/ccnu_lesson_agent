@@ -29,6 +29,7 @@ const (
 type Msg struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content,omitempty"`
+	Reasoning  string     `json:"reasoning_content,omitempty"` // 思考链（携带 tools 时需回传）
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
@@ -101,11 +102,12 @@ type ToolFunction struct {
 type EventKind string
 
 const (
-	KindDelta    EventKind = "delta"     // 文本增量
-	KindToolCall EventKind = "tool_call" // 模型请求调用工具（已聚合完整参数）
-	KindUsage    EventKind = "usage"     // token 用量
-	KindEnd      EventKind = "end"       // 本轮流结束
-	KindError    EventKind = "error"     // 出错
+	KindDelta      EventKind = "delta"      // 文本增量
+	KindReasoning  EventKind = "reasoning"  // 思考链增量（reasoning_content）
+	KindToolCall   EventKind = "tool_call"  // 模型请求调用工具（已聚合完整参数）
+	KindUsage      EventKind = "usage"      // token 用量
+	KindEnd        EventKind = "end"        // 本轮流结束
+	KindError      EventKind = "error"      // 出错
 )
 
 type Event struct {
@@ -153,18 +155,25 @@ type OpenAIProvider struct {
 }
 
 type openAIChatRequest struct {
-	Model    string `json:"model"`
-	Messages []Msg  `json:"messages"`
-	Tools    []Tool `json:"tools,omitempty"`
-	Stream   bool   `json:"stream"`
+	Model           string        `json:"model"`
+	Messages        []Msg         `json:"messages"`
+	Tools           []Tool        `json:"tools,omitempty"`
+	Stream          bool          `json:"stream"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"` // 思考强度 low/high/max（OpenAI 兼容）
+	Thinking        *thinkingOpenAIRequest `json:"thinking,omitempty"` // DeepSeek 思考模式开关
+}
+
+type thinkingOpenAIRequest struct {
+	Type string `json:"type"` // enabled / disabled
 }
 
 type openAIStreamChunk struct {
 	Choices []struct {
 		Index int `json:"index"`
 		Delta struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"` // 思考链增量
+			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`
 				Function struct {
@@ -177,12 +186,25 @@ type openAIStreamChunk struct {
 	Usage *Usage `json:"usage"`
 }
 
-func (p *OpenAIProvider) ChatStream(ctx context.Context, req ChatRequest) (<-chan Event, error) {
+// buildOpenAIRequest 组装 OpenAI 兼容请求（含思考模式参数）。
+// 思考模式：OPENAI_REASONING_EFFORT 非空时开启；thinking 开关仅对 deepseek 域下发（OpenAI 无此参数）。
+func (p *OpenAIProvider) buildOpenAIRequest(req ChatRequest, stream bool) openAIChatRequest {
 	model := req.Model
 	if model == "" {
 		model = p.cfg.OpenAIModel
 	}
-	body, err := json.Marshal(openAIChatRequest{Model: model, Messages: req.Messages, Tools: req.Tools, Stream: true})
+	r := openAIChatRequest{Model: model, Messages: req.Messages, Tools: req.Tools, Stream: stream}
+	if effort := p.cfg.OpenAIReasoningEffort; effort != "" {
+		r.ReasoningEffort = effort
+		if strings.Contains(p.cfg.OpenAIBaseURL, "deepseek.com") {
+			r.Thinking = &thinkingOpenAIRequest{Type: "enabled"}
+		}
+	}
+	return r
+}
+
+func (p *OpenAIProvider) ChatStream(ctx context.Context, req ChatRequest) (<-chan Event, error) {
+	body, err := json.Marshal(p.buildOpenAIRequest(req, true))
 	if err != nil {
 		return nil, err
 	}
@@ -206,11 +228,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ChatRequest) (<-cha
 }
 
 func (p *OpenAIProvider) Complete(ctx context.Context, req ChatRequest) (string, *Usage, error) {
-	model := req.Model
-	if model == "" {
-		model = p.cfg.OpenAIModel
-	}
-	body, err := json.Marshal(openAIChatRequest{Model: model, Messages: req.Messages, Stream: false})
+	body, err := json.Marshal(p.buildOpenAIRequest(req, false))
 	if err != nil {
 		return "", nil, err
 	}
@@ -305,6 +323,9 @@ func (p *OpenAIProvider) parseStream(ctx context.Context, r io.Reader, out chan<
 			out <- Event{Kind: KindUsage, Usage: chunk.Usage}
 		}
 		for _, ch := range chunk.Choices {
+			if ch.Delta.ReasoningContent != "" {
+				out <- Event{Kind: KindReasoning, Content: ch.Delta.ReasoningContent}
+			}
 			if ch.Delta.Content != "" {
 				out <- Event{Kind: KindDelta, Content: ch.Delta.Content}
 			}
