@@ -38,7 +38,7 @@ export function ThinkingIndicator() {
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ccnu-blue opacity-60" />
         <span className="relative inline-flex size-2 rounded-full bg-ccnu-blue" />
       </span>
-      <span className="text-xs">学伴思考中</span>
+      <span className="text-xs">小毅思考中</span>
       <span className="flex items-center gap-0.5 pl-0.5">
         <span className="thinking-dot" />
         <span className="thinking-dot" style={{ animationDelay: '0.2s' }} />

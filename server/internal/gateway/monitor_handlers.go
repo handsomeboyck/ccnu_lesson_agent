@@ -303,7 +303,7 @@ func (m *monitorService) auditExportAll(w http.ResponseWriter, r *http.Request) 
 		for _, msg := range qa {
 			who := "学生"
 			if msg.Role == "assistant" {
-				who = "AI 学伴"
+				who = "AI 助教"
 			}
 			sb.WriteString(fmt.Sprintf("【%s %s】\n%s\n\n", who, msg.CreatedAt.Format("15:04"), msg.Content))
 		}

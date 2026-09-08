@@ -57,7 +57,7 @@ export interface AskPayload {
 }
 
 export const MODE_LABELS: Record<Mode, string> = {
-  companion: '学伴',
+  companion: '智能助教',
   practice: '练习测评',
   teacher: '教师辅助',
 }

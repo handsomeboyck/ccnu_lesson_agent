@@ -470,7 +470,7 @@ export default function ChatPage() {
           </div>
           <div className="min-w-0">
             <div className="truncate font-display text-sm font-bold">华中师范大学</div>
-            <div className="text-[11px] text-muted-foreground">教育版智能学伴</div>
+            <div className="text-[11px] text-muted-foreground">智能助教</div>
           </div>
         </div>
         <div className="px-3 pb-3">
@@ -648,7 +648,7 @@ export default function ChatPage() {
                 <div className="mx-auto mb-3 flex size-16 items-center justify-center rounded-full bg-ccnu-blue/10 font-display text-3xl font-bold text-ccnu-blue">
                   华
                 </div>
-                <h2 className="font-display text-xl font-bold">华中师范大学 · 智能学伴</h2>
+                <h2 className="font-display text-xl font-bold">华中师范大学 · 智能助教</h2>
                 <p className="mt-1 text-xs text-ccnu-gold-deep">求实创新 · 立德树人</p>
                 <p className="mt-2 text-xs text-muted-foreground">
                   多轮对话、实时回复、输入 <code>/</code> 唤起快捷功能、生成可下载的学习文件
@@ -763,7 +763,7 @@ export default function ChatPage() {
               </div>
             )}
             <p className="mt-1.5 text-center text-[11px] text-muted-foreground">
-              学伴 AI 生成内容仅供参考，学习请以教材与老师讲解为准。
+              智能助教生成内容仅供参考，学习请以教材与老师讲解为准。
             </p>
           </div>
         </div>
@@ -812,7 +812,7 @@ function MessageRow({
           isUser ? 'bg-muted text-foreground' : 'bg-ccnu-blue text-white'
         }`}
       >
-        {isUser ? userName : '华'}
+        {isUser ? userName : '毅'}
       </div>
       <div className={`min-w-0 max-w-[85%] ${isUser ? 'text-right' : 'flex-1'}`}>
         {isUser ? (

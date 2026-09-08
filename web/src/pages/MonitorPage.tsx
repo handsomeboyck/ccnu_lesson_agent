@@ -389,7 +389,7 @@ export default function MonitorPage() {
               ) : (
                 transcript.msgs.map((m) => (
                   <div key={m.id} className={`tr-msg ${m.role}`}>
-                    <div className="tr-who">{m.role === 'user' ? '学生' : '学伴'}</div>
+                    <div className="tr-who">{m.role === 'user' ? '学生' : '助教'}</div>
                     <div className="tr-content">{m.content}</div>
                     <div className="tr-time">{new Date(m.created_at).toLocaleString()}</div>
                   </div>
@@ -423,7 +423,7 @@ function SysRow({ label, value, detail, danger }: { label: string; value: string
 function modeLabel(m: string): string {
   switch (m) {
     case 'companion':
-      return '学伴'
+      return '智能助教'
     case 'practice':
       return '练习'
     case 'teacher':

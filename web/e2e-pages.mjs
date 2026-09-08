@@ -71,7 +71,7 @@ try {
   await page.goto('http://localhost:5173/monitor', { waitUntil: 'domcontentloaded' })
   await new Promise((r) => setTimeout(r, 1200))
   text = await page.evaluate(() => document.body.innerText)
-  console.log('监控守卫(student→重定向):', !text.includes('监控中心') && (text.includes('新对话') || text.includes('智能学伴')) ? '✓' : '✗')
+  console.log('监控守卫(student→重定向):', !text.includes('监控中心') && (text.includes('新对话') || text.includes('智能助教')) ? '✓' : '✗')
 
   // 4. 聊天页回归（新对话入口可用）
   await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded' })

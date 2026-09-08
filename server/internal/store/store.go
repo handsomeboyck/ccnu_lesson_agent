@@ -17,7 +17,7 @@ const (
 
 // 会话模式常量（对应 Agent.md 的教育模式）
 const (
-	ModeCompanion = "companion" // 学伴（智能答疑）
+	ModeCompanion = "companion" // 智能助教（智能答疑）
 	ModePractice  = "practice"  // 练习与测评
 	ModeTeacher   = "teacher"   // 教师辅助
 )

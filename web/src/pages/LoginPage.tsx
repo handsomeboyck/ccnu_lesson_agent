@@ -36,12 +36,12 @@ export default function LoginPage() {
           华
         </div>
         <div>
-          <div className="font-display text-sm font-bold">华中师范大学 · 智能学伴</div>
-          <div className="text-[11px] text-muted-foreground">教育版 AI 学伴</div>
+          <div className="font-display text-sm font-bold">华中师范大学 · 智能助教</div>
+          <div className="text-[11px] text-muted-foreground">AI 智能助教</div>
         </div>
       </div>
       <h1 className="font-display text-xl font-bold">欢迎回来</h1>
-      <p className="mt-1 text-sm text-muted-foreground">登录教育版智能学伴</p>
+      <p className="mt-1 text-sm text-muted-foreground">登录智能助教</p>
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <label className="block text-sm">
           <span className="mb-2 block font-medium">用户名</span>

@@ -58,7 +58,7 @@ try {
   )
   await new Promise((r) => setTimeout(r, 800))
   text = await page.evaluate(() => document.body.innerText)
-  const hasReply = /学伴|你好|教育/.test(text) && !text.includes('Failed to fetch')
+  const hasReply = /助教|你好|教育/.test(text) && !text.includes('Failed to fetch')
   console.log('流式回复渲染:', hasReply ? '✓' : '✗（检查页面文本）')
   console.log('页面片段:', text.slice(0, 220).replace(/\n+/g, ' | '))
 

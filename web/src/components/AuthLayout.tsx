@@ -9,10 +9,10 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           <div className="flex size-14 items-center justify-center rounded-full border border-white/25 bg-white/10 font-display text-2xl font-bold">
             华
           </div>
-          <div className="mt-6 font-display text-2xl font-bold leading-snug">华中师范大学 · 智能学伴</div>
+          <div className="mt-6 font-display text-2xl font-bold leading-snug">华中师范大学 · 智能助教</div>
           <div className="mt-2 text-sm text-ccnu-gold">求实创新 · 立德树人</div>
           <p className="mt-6 max-w-md text-sm leading-relaxed text-white/75">
-            面向师生的教育版 AI 学伴：多轮问答 · 生成教案与试卷 · 文档分析与图表产出。以师范精神赋能教与学。
+            面向师生的 AI 智能助教：多轮问答 · 生成教案与试卷 · 文档分析与图表产出。以师范精神赋能教与学。
           </p>
         </div>
         <div className="text-xs text-white/60">Central China Normal University / CCNU AI</div>

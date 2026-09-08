@@ -16,7 +16,7 @@ export default function AskCard({
       <div className="flex items-start gap-2.5">
         <HelpCircle className="mt-0.5 size-4 shrink-0 text-ccnu-gold-deep" />
         <div className="min-w-0">
-          <div className="mb-0.5 text-xs font-semibold text-ccnu-gold-deep">学伴想先确认一个问题</div>
+          <div className="mb-0.5 text-xs font-semibold text-ccnu-gold-deep">小毅想先确认一个问题</div>
           <div className="text-sm">{question}</div>
         </div>
       </div>
