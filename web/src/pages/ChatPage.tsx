@@ -194,7 +194,10 @@ export default function ChatPage() {
   const activeConv = conversations.find((c) => c.id === activeId) ?? null
 
   // ---- AI SDK chat（v7：显式 transport + 请求适配层）----
+  // throttle: 50ms —— 官方排障：默认每 chunk 全量重渲染，密集流（长报告/大工具参数）会触发
+  // React #185（Maximum update depth exceeded），节流后按 50ms 批量更新 UI。
   const { messages, setMessages, sendMessage, status, stop, error: chatError } = useChat({
+    throttle: 50,
     transport: new DefaultChatTransport<UIMessage>({
       api: '/v1/chat',
       headers: () => ({ Authorization: `Bearer ${useAuth.getState().accessToken ?? ''}` }),
@@ -794,8 +797,7 @@ export default function ChatPage() {
               <span>⚠ {chatError?.message ?? error}</span>
               <button onClick={() => setError('')}>✕</button>
             </div>
-          )}
-          <div ref={bottomRef} />
+          )}          <div ref={bottomRef} />
         </div>
 
         {/* 输入区 */}
