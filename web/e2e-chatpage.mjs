@@ -45,7 +45,12 @@ function waitStreamEnd(page, timeout = 120000) {
 }
 
 const { user, access_token: token } = await login()
-const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--disable-gpu'] })
+const browser = await puppeteer.launch({
+  executablePath: CHROME,
+  headless: true,
+  args: ['--no-sandbox', '--disable-gpu'],
+  defaultViewport: { width: 1440, height: 900 }, // 桌面视口
+})
 try {
   const page = await browser.newPage()
   const logs = []

@@ -23,6 +23,7 @@ import {
   Square,
   Trash2,
   Pencil,
+  MoreHorizontal,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -46,6 +47,7 @@ import ToolCard from '../components/chat/ToolCard'
 import AskCard from '../components/chat/AskCard'
 import ArtifactCards from '../components/chat/ArtifactCards'
 import { ThinkingCard, ThinkingIndicator } from '../components/chat/ThinkingCard'
+import MobileTabBar from '../components/MobileTabBar'
 
 // ---- 常量与工具 ----
 
@@ -173,6 +175,7 @@ export default function ChatPage() {
   const [dragActive, setDragActive] = useState(false)
   const [error, setError] = useState('')
   const [slashMenu, setSlashMenu] = useState(false)
+  const [mobileMenu, setMobileMenu] = useState(false) // 移动端头部 ⋯ 菜单
 
   const convIdRef = useRef('')
   const modeRef = useRef<string>('companion')
@@ -462,9 +465,10 @@ export default function ChatPage() {
 
   // ---- 渲染 ----
   return (
-    <div className="flex h-full overflow-hidden bg-background text-foreground">
-      {/* 侧栏 */}
-      <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-card">
+    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
+      <div className="flex min-h-0 flex-1">
+      {/* 侧栏（桌面 lg+ 显示；移动端用底部导航） */}
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-card lg:flex">
         <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-ccnu-blue font-display text-lg font-bold text-white shadow-sm">
             华
@@ -584,9 +588,9 @@ export default function ChatPage() {
           <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${modePillClass(activeConv ? activeConv.mode : draftMode)}`}>
             {MODE_LABELS[activeConv ? activeConv.mode : draftMode]}
           </span>
-          {/* 模式切换（右上角；选中态高亮） */}
+          {/* 模式切换（桌面右上角；移动端收进 ⋯ 菜单） */}
           {!activeConv && (
-            <div className="ml-auto flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
+            <div className="ml-auto hidden items-center gap-0.5 rounded-lg bg-muted p-0.5 lg:flex">
               {(Object.keys(MODE_LABELS) as Mode[]).map((m) => {
                 const Icon = MODE_ICONS[m]
                 const active = draftMode === m
@@ -608,6 +612,78 @@ export default function ChatPage() {
               })}
             </div>
           )}
+          {/* 移动端 ⋯ 菜单（模式/监控/仓库/退出） */}
+          <div className="relative ml-auto lg:hidden">
+            <button
+              onClick={() => setMobileMenu((v) => !v)}
+              className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              title="更多"
+              aria-label="更多"
+            >
+              <MoreHorizontal className="size-5" />
+            </button>
+            {mobileMenu && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setMobileMenu(false)} />
+                <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-lg border border-border bg-card p-1 shadow-lg">
+                  {!activeConv && (
+                    <div className="px-2 py-1.5">
+                      <div className="mb-1 px-1 text-[11px] text-muted-foreground">模式</div>
+                      <div className="flex flex-col gap-0.5">
+                        {(Object.keys(MODE_LABELS) as Mode[]).map((m) => {
+                          const Icon = MODE_ICONS[m]
+                          return (
+                            <button
+                              key={m}
+                              onClick={() => {
+                                setDraftMode(m)
+                                setMobileMenu(false)
+                              }}
+                              className={`flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
+                                draftMode === m
+                                  ? 'bg-ccnu-blue/10 font-medium text-ccnu-blue'
+                                  : 'text-foreground hover:bg-accent'
+                              }`}
+                            >
+                              {Icon && <Icon className="size-4" />}
+                              {MODE_LABELS[m]}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {user?.role === 'admin' && (
+                    <Link
+                      to="/monitor"
+                      onClick={() => setMobileMenu(false)}
+                      className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-accent"
+                    >
+                      <Activity className="size-4" /> 运行监控
+                    </Link>
+                  )}
+                  <a
+                    href="https://github.com/handsomeboyck/ccnu_lesson_agent"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-accent"
+                  >
+                    <ExternalLink className="size-4" /> 开源仓库
+                  </a>
+                  <button
+                    onClick={() => {
+                      setMobileMenu(false)
+                      void logout()
+                      window.location.href = '/login'
+                    }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-destructive hover:bg-accent"
+                  >
+                    <LogOut className="size-4" /> 退出登录
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </header>
 
         {/* 快捷功能面板（新对话时） */}
@@ -778,6 +854,9 @@ export default function ChatPage() {
           </div>
         </div>
       </main>
+      </div>
+      {/* 移动端底部导航 */}
+      <MobileTabBar />
     </div>
   )
 }
