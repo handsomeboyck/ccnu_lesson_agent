@@ -21,6 +21,7 @@ import {
   type ArtifactInfo,
 } from '../api/client'
 import { Button, buttonVariants } from '../components/ui/button'
+import MobileTabBar from '../components/MobileTabBar'
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`
@@ -181,7 +182,7 @@ export default function ArtifactsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-6xl px-6 pb-24 pt-8 lg:pb-8">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-bold">我的文件</h1>
@@ -370,6 +371,7 @@ export default function ArtifactsPage() {
           </div>
         </div>
       )}
+      <MobileTabBar />
     </div>
   )
 }

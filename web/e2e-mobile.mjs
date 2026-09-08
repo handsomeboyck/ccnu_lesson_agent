@@ -111,6 +111,29 @@ try {
   const fileText = await page.evaluate(() => document.body.innerText)
   console.log('底部Tab跳转我的文件:', fileText.includes('我的文件') && page.url().includes('/artifacts') ? '✓' : '✗')
 
+  // 底部 Tab 在各页面均可用 + 无横向溢出
+  const tabBarPresent = () =>
+    page.evaluate(() => {
+      const nav = document.querySelector('nav[aria-label="移动端导航"]')
+      return nav ? getComputedStyle(nav).display !== 'none' : false
+    })
+  const noHOverflow = () =>
+    page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
+
+  console.log('我的文件页 底部导航:', (await tabBarPresent()) ? '✓' : '✗', '| 无横向溢出:', (await noHOverflow()) ? '✓' : '✗')
+  await page.evaluate(() => {
+    const links = [...document.querySelectorAll('a')]
+    links.find((a) => a.textContent.includes('资料库'))?.click()
+  })
+  await new Promise((r) => setTimeout(r, 1200))
+  console.log('资料库页 底部导航:', (await tabBarPresent()) ? '✓' : '✗', '| 无横向溢出:', (await noHOverflow()) ? '✓' : '✗')
+  await page.evaluate(() => {
+    const links = [...document.querySelectorAll('a')]
+    links.find((a) => a.textContent.includes('学习功能'))?.click()
+  })
+  await new Promise((r) => setTimeout(r, 1200))
+  console.log('学习功能页 底部导航:', (await tabBarPresent()) ? '✓' : '✗', '| 无横向溢出:', (await noHOverflow()) ? '✓' : '✗')
+
   console.log('控制台错误:', logs.join(' | ') || '(无)')
 } finally {
   await browser.close()

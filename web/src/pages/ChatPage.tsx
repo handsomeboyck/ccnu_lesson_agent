@@ -776,7 +776,7 @@ export default function ChatPage() {
         </div>
 
         {/* 输入区 */}
-        <div className="shrink-0 border-t border-border bg-card px-4 pb-3 pt-3 sm:px-8">
+        <div className="shrink-0 border-t border-border bg-card px-4 pb-[calc(env(safe-area-inset-bottom)+3.75rem)] pt-3 sm:px-8 lg:pb-3">
           <div className="mx-auto max-w-3xl">
             {slashMenu && filteredCommands.length > 0 && (
               <div className="mb-2 overflow-hidden rounded-lg border border-border bg-card shadow-md">

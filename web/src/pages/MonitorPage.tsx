@@ -14,6 +14,7 @@ import {
   type MonitorOverview,
 } from '../api/client'
 import { Button } from '../components/ui/button'
+import MobileTabBar from '../components/MobileTabBar'
 
 const HOUR_LABELS = ['0点', '2点', '4点', '6点', '8点', '10点', '12点', '14点', '16点', '18点', '20点', '22点']
 
@@ -124,7 +125,7 @@ export default function MonitorPage() {
   })
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-6xl px-6 pb-24 pt-8 lg:pb-8">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-bold">监控中心</h1>
@@ -404,6 +405,7 @@ export default function MonitorPage() {
           </div>
         </div>
       )}
+      <MobileTabBar />
     </div>
   )
 }

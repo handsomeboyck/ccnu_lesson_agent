@@ -9,6 +9,7 @@ import {
   type LibraryFile,
 } from '../api/client'
 import FileIcon from '../components/FileIcon'
+import MobileTabBar from '../components/MobileTabBar'
 import { Button } from '../components/ui/button'
 
 const ACCEPT = '.pdf,.docx,.doc,.xlsx,.txt,.md,.csv'
@@ -103,7 +104,7 @@ export default function LibraryPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
+    <div className="mx-auto max-w-5xl px-6 pb-24 pt-8 lg:pb-8">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-bold">我的资料库</h1>
@@ -148,7 +149,7 @@ export default function LibraryPage() {
       )}
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="grid grid-cols-[minmax(0,1fr)_90px_110px_160px_40px] items-center gap-2 border-b border-border bg-muted/50 px-4 py-2.5 text-xs font-medium text-muted-foreground">
+        <div className="hidden grid-cols-[minmax(0,1fr)_90px_110px_160px_40px] items-center gap-2 border-b border-border bg-muted/50 px-4 py-2.5 text-xs font-medium text-muted-foreground sm:grid">
           <span>文件名</span>
           <span>大小</span>
           <span>状态</span>
@@ -158,13 +159,17 @@ export default function LibraryPage() {
         {files.map((f) => (
           <div
             key={f.id}
-            className="grid grid-cols-[minmax(0,1fr)_90px_110px_160px_40px] items-center gap-2 border-b border-border/60 px-4 py-2.5 text-sm last:border-0 hover:bg-accent/40"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/60 px-4 py-2.5 text-sm last:border-0 hover:bg-accent/40 sm:grid sm:grid-cols-[minmax(0,1fr)_90px_110px_160px_40px] sm:gap-2"
           >
-            <span className="flex min-w-0 items-center gap-2" title={f.filename}>
+            <span className="flex min-w-0 flex-1 items-center gap-2 sm:block" title={f.filename}>
               <FileIcon name={f.filename} mime={`application/${f.ext}`} size={16} />
               <span className="truncate">{f.filename}</span>
+              {/* 移动端：大小并入文件名行 */}
+              <span className="ml-auto shrink-0 text-xs text-muted-foreground sm:hidden">
+                {fmtSize(f.size_bytes)}
+              </span>
             </span>
-            <span className="text-xs text-muted-foreground">{fmtSize(f.size_bytes)}</span>
+            <span className="hidden text-xs text-muted-foreground sm:block">{fmtSize(f.size_bytes)}</span>
             <span>
               {f.status === 'ready' && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs text-success">
@@ -182,8 +187,10 @@ export default function LibraryPage() {
                 </span>
               )}
             </span>
-            <span className="text-xs text-muted-foreground">{new Date(f.created_at).toLocaleString()}</span>
-            <span className="flex justify-end">
+            <span className="hidden text-xs text-muted-foreground sm:block">
+              {new Date(f.created_at).toLocaleString()}
+            </span>
+            <span className="ml-auto flex shrink-0 justify-end sm:ml-0">
               <button
                 className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
                 title="删除"
@@ -200,6 +207,7 @@ export default function LibraryPage() {
           </div>
         )}
       </div>
+      <MobileTabBar />
     </div>
   )
 }

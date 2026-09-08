@@ -11,6 +11,7 @@ import {
 } from '../api/client'
 import { useAuth } from '../store/auth'
 import { Button } from '../components/ui/button'
+import MobileTabBar from '../components/MobileTabBar'
 
 const NEW_SKILL_TEMPLATE = `---
 name: my_skill
@@ -118,7 +119,7 @@ export default function SkillsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-6xl px-6 pb-24 pt-8 lg:pb-8">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-bold">学习功能</h1>
@@ -162,7 +163,7 @@ export default function SkillsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-[280px_minmax(0,1fr)] gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="max-h-[70vh] overflow-y-auto rounded-xl border border-border bg-card p-1.5 shadow-sm">
           {skills.map((s) => (
             <div
@@ -228,6 +229,7 @@ export default function SkillsPage() {
           )}
         </main>
       </div>
+      <MobileTabBar />
     </div>
   )
 }
