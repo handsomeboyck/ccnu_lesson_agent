@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Download, Eye, ImageIcon, LogOut, Trash2, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  Download,
+  Eye,
+  FolderOpen,
+  ImageIcon,
+  LogOut,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react'
 import mammoth from 'mammoth'
 import FileIcon from '../components/FileIcon'
 import {
@@ -10,7 +20,7 @@ import {
   logout,
   type ArtifactInfo,
 } from '../api/client'
-import { Button } from '../components/ui/button'
+import { Button, buttonVariants } from '../components/ui/button'
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`
@@ -27,10 +37,62 @@ const PREVIEWABLE = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ]
 
+/** 文件类型徽章配色。 */
+function extBadge(name: string): { label: string; cls: string } {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  switch (ext) {
+    case 'pdf':
+      return { label: 'PDF', cls: 'bg-red-50 text-red-600 border-red-200' }
+    case 'docx':
+    case 'doc':
+      return { label: 'DOC', cls: 'bg-blue-50 text-blue-600 border-blue-200' }
+    case 'xlsx':
+    case 'xls':
+    case 'csv':
+      return { label: 'SHEET', cls: 'bg-emerald-50 text-emerald-600 border-emerald-200' }
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+    case 'gif':
+    case 'webp':
+      return { label: 'IMG', cls: 'bg-purple-50 text-purple-600 border-purple-200' }
+    case 'pptx':
+    case 'ppt':
+      return { label: 'PPT', cls: 'bg-orange-50 text-orange-600 border-orange-200' }
+    default:
+      return { label: (ext || 'FILE').toUpperCase().slice(0, 6), cls: 'bg-muted text-muted-foreground border-border' }
+  }
+}
+
+/** 图片缩略图：拉取 blob → objectURL（复用产物卡逻辑）。 */
+function ThumbImg({ a }: { a: ArtifactInfo }) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [err, setErr] = useState(false)
+  useEffect(() => {
+    let alive = true
+    let obj: string | null = null
+    fetchArtifact(a.id)
+      .then((blob) => {
+        if (!alive) return
+        obj = URL.createObjectURL(blob)
+        setSrc(obj)
+      })
+      .catch(() => alive && setErr(true))
+    return () => {
+      alive = false
+      if (obj) URL.revokeObjectURL(obj)
+    }
+  }, [a.id])
+  if (err) return <ImageIcon className="size-6 text-muted-foreground" />
+  if (!src) return <ImageIcon className="size-6 animate-pulse text-muted-foreground" />
+  return <img src={src} alt={a.filename} className="h-full w-full object-cover" />
+}
+
 export default function ArtifactsPage() {
   const [items, setItems] = useState<ArtifactInfo[]>([])
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
+  const [search, setSearch] = useState('')
   const [preview, setPreview] = useState<ArtifactInfo | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewText, setPreviewText] = useState('')
@@ -49,6 +111,12 @@ export default function ArtifactsPage() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return items
+    return items.filter((a) => a.filename.toLowerCase().includes(q) || (a.skill ?? '').toLowerCase().includes(q))
+  }, [items, search])
 
   async function openPreview(a: ArtifactInfo) {
     try {
@@ -113,7 +181,7 @@ export default function ArtifactsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
+    <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-bold">产物库</h1>
@@ -122,7 +190,7 @@ export default function ArtifactsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/" className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
+          <Link to="/" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
             <ArrowLeft className="size-3.5" /> 回对话
           </Link>
           <Button
@@ -151,60 +219,105 @@ export default function ArtifactsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {items.map((a) => {
-          const previewable = PREVIEWABLE.some((p) => a.mime.startsWith(p))
-          return (
-            <div key={a.id} className="group overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
-              <button
-                className="flex w-full flex-col items-center gap-2 p-4 text-left"
-                onClick={() => void openPreview(a)}
-                title={previewable ? `预览 ${a.filename}` : a.filename}
-              >
-                {a.mime.startsWith('image/') ? (
-                  <span className="flex h-16 w-24 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                    <ImageIcon className="size-6" />
-                  </span>
-                ) : (
-                  <FileIcon name={a.filename} mime={a.mime} size={44} />
-                )}
-                <span className="w-full truncate text-center text-xs font-medium">{a.filename}</span>
-                <span className="text-[11px] text-muted-foreground">
-                  {a.skill} · {fmtSize(a.size_bytes)}
-                </span>
-              </button>
-              <div className="flex items-center justify-between border-t bg-muted/40 px-2 py-1">
-                <button
-                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  title="预览"
-                  onClick={() => void openPreview(a)}
-                >
-                  <Eye className="size-3.5" />
-                </button>
-                <button
-                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  title="下载"
-                  onClick={() => void download(a)}
-                >
-                  <Download className="size-3.5" />
-                </button>
-                <button
-                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
-                  title="删除"
-                  onClick={() => void remove(a)}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
-            </div>
-          )
-        })}
-        {items.length === 0 && (
-          <div className="col-span-full py-12 text-center text-sm text-muted-foreground">
-            暂无产物。在对话里让 AI 用 Python 画图/处理数据，生成的图片与文件会出现在这里。
+      {/* 工具栏：搜索 + 计数 */}
+      {items.length > 0 && (
+        <div className="mb-4 flex items-center gap-3">
+          <div className="relative max-w-xs flex-1">
+            <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索文件名 / 技能…"
+              className="input-base pl-8"
+            />
           </div>
-        )}
-      </div>
+          <span className="ml-auto text-xs text-muted-foreground">
+            共 {filtered.length} 个 / {items.length}
+          </span>
+        </div>
+      )}
+
+      {filtered.length === 0 && items.length > 0 ? (
+        <div className="rounded-xl border border-dashed border-border py-14 text-center text-sm text-muted-foreground">
+          没有匹配「{search}」的产物
+        </div>
+      ) : items.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card py-16 text-center">
+          <FolderOpen className="mx-auto mb-3 size-10 text-muted-foreground/50" />
+          <div className="text-sm font-medium">这里还没有产物</div>
+          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">
+            在对话里让 AI 用 Python 画图、处理数据，或生成 docx / pptx / pdf 试卷与课件，产物会自动出现在这里。
+          </p>
+          <Link to="/" className={buttonVariants({ variant: 'default', size: 'sm', className: 'mt-4' })}>
+            去对话生成
+          </Link>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {filtered.map((a) => {
+            const previewable = PREVIEWABLE.some((p) => a.mime.startsWith(p))
+            const isImage = a.mime.startsWith('image/')
+            const badge = extBadge(a.filename)
+            return (
+              <div
+                key={a.id}
+                className="group overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+              >
+                <button
+                  className="flex w-full flex-col text-left"
+                  onClick={() => void openPreview(a)}
+                  title={previewable ? `预览 ${a.filename}` : a.filename}
+                >
+                  <div className="relative flex h-28 items-center justify-center overflow-hidden bg-muted/60">
+                    {isImage ? (
+                      <ThumbImg a={a} />
+                    ) : (
+                      <FileIcon name={a.filename} mime={a.mime} size={40} />
+                    )}
+                    <span className={`absolute left-2 top-2 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${badge.cls}`}>
+                      {badge.label}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1 px-3 pb-2 pt-2.5">
+                    <span className="truncate text-xs font-medium">{a.filename}</span>
+                    <span className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span className="truncate">{a.skill}</span>
+                      <span className="shrink-0">
+                        {fmtSize(a.size_bytes)} · {new Date(a.created_at).toLocaleDateString()}
+                      </span>
+                    </span>
+                  </div>
+                </button>
+                <div className="flex items-center justify-end gap-0.5 border-t bg-muted/40 px-2 py-1">
+                  {previewable && (
+                    <button
+                      className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      title="预览"
+                      onClick={() => void openPreview(a)}
+                    >
+                      <Eye className="size-3.5" />
+                    </button>
+                  )}
+                  <button
+                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    title="下载"
+                    onClick={() => void download(a)}
+                  >
+                    <Download className="size-3.5" />
+                  </button>
+                  <button
+                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
+                    title="删除"
+                    onClick={() => void remove(a)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {preview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={closePreview}>

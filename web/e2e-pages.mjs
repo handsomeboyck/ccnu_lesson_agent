@@ -33,13 +33,13 @@ try {
   await page.goto('http://localhost:5173/login', { waitUntil: 'domcontentloaded' })
   await new Promise((r) => setTimeout(r, 800))
   let text = await page.evaluate(() => document.body.innerText)
-  console.log('登录页:', text.includes('欢迎回来') && text.includes('登 录') ? '✓' : '✗')
+  console.log('登录页:', text.includes('欢迎回来') && text.includes('登录') && !text.includes('登 录') ? '✓' : '✗')
 
   // 2. 注册页
   await page.goto('http://localhost:5173/register', { waitUntil: 'domcontentloaded' })
   await new Promise((r) => setTimeout(r, 800))
   text = await page.evaluate(() => document.body.innerText)
-  console.log('注册页:', text.includes('创建账号') && text.includes('注 册') ? '✓' : '✗')
+  console.log('注册页:', text.includes('创建账号') && text.includes('注册') && !text.includes('注 册') ? '✓' : '✗')
 
   // 3. 注入登录态 → 资料库 / 产物 / 技能 / 监控守卫
   await page.evaluate(

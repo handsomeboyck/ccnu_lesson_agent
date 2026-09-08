@@ -179,6 +179,7 @@ export default function ChatPage() {
   const sendingRef = useRef(false) // 同步发送锁：防止双击/连发产生并发流（会破坏 SDK 消息列表）
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null) // 输入框（自动增高）
   const activeConv = conversations.find((c) => c.id === activeId) ?? null
 
   // ---- AI SDK chat（v7：显式 transport + 请求适配层）----
@@ -348,6 +349,7 @@ export default function ChatPage() {
     modeRef.current = activeConv ? activeConv.mode : draftMode
     attachRef.current = attachIds
     setInput('')
+    if (taRef.current) taRef.current.style.height = 'auto' // 发送后收起输入框
     setSlashMenu(false)
     setError('')
 
@@ -402,6 +404,14 @@ export default function ChatPage() {
   function onInputChange(value: string) {
     setInput(value)
     setSlashMenu(value.startsWith('/') && !value.includes(' '))
+    autoGrowTa()
+  }
+  // 输入框随内容自动增高（打字时不再僵硬地固定单行高度）
+  function autoGrowTa() {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
   }
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Escape') {
@@ -663,7 +673,7 @@ export default function ChatPage() {
                 ))}
               </div>
             )}
-            <div className="flex items-end gap-2 rounded-xl border border-border bg-background p-2 shadow-sm transition-shadow focus-within:border-ccnu-blue/50 focus-within:ring-2 focus-within:ring-ccnu-blue/20">
+            <div className="flex items-end gap-2 rounded-xl border border-border bg-background p-2 shadow-sm transition-all duration-200 focus-within:border-ccnu-blue/60 focus-within:bg-card focus-within:shadow-md focus-within:ring-4 focus-within:ring-ccnu-blue/10">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -684,12 +694,13 @@ export default function ChatPage() {
                 <Paperclip className="size-4.5" />
               </button>
               <textarea
+                ref={taRef}
                 value={input}
                 onChange={(e) => onInputChange(e.target.value)}
                 onKeyDown={onKeyDown}
                 placeholder={pendingAsk ? '回答助手的问题…' : '输入消息… 输入 / 唤起 Skill，Enter 发送'}
                 rows={1}
-                className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none caret-ccnu-blue transition-[height] duration-150 placeholder:text-muted-foreground"
               />
               {streaming ? (
                 <Button variant="danger" size="icon" onClick={stop} title="停止生成">
