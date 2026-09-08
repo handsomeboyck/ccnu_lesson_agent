@@ -62,7 +62,7 @@ function SpikeChat({ token }: { token: string }) {
         const d = (p as { type?: string; data?: unknown }).data as
           | { type?: string; conversation_id?: string }
           | undefined
-        if (p.type === 'data' && d?.type === 'meta' && d.conversation_id) {
+        if (p.type === 'data-ccnu' && d?.type === 'meta' && d.conversation_id) {
           convIdRef.current = d.conversation_id
         }
       }

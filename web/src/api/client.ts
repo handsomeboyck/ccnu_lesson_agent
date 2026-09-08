@@ -173,11 +173,19 @@ export interface ServerMessageArtifact {
   /** 实时流式（SSE tool_result）额外携带 base64 data；历史回看接口不含此字段。 */
   data?: string
 }
+export interface ServerMessageToolStep {
+  call_id?: string
+  name: string
+  summary: string
+  duration_ms?: number
+  artifacts?: ServerMessageArtifact[]
+}
 export interface ServerMessage {
   id: string
   role: 'user' | 'assistant' | 'tool'
   content: string
   artifacts?: ServerMessageArtifact[]
+  tool_steps?: ServerMessageToolStep[]
   created_at: string
 }
 

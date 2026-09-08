@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -121,8 +122,8 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	// 首个 chunk：消息开始（前端据此更新会话 id）
-	writeUIChunk(w, map[string]any{"type": "start", "messageId": conv.ID})
+	// 首个 chunk：消息开始（messageId 每次流唯一，前端用作消息 key）
+	writeUIChunk(w, map[string]any{"type": "start", "messageId": streamMsgID()})
 	writeUIData(w, map[string]any{"type": "meta", "conversation_id": conv.ID})
 	flusher.Flush()
 
@@ -345,6 +346,15 @@ func writeUIChunk(w http.ResponseWriter, chunk any) {
 // writeUIData 输出自定义数据 chunk（type 以 data- 开头，SDK 归入 message.parts 的 data part）。
 func writeUIData(w http.ResponseWriter, payload any) {
 	writeUIChunk(w, map[string]any{"type": "data-ccnu", "data": payload})
+}
+
+// streamMsgID 生成每次流唯一的消息 id（前端用作消息 key，避免同会话重复）。
+func streamMsgID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%x", b) + fmt.Sprintf("%x", time.Now().UnixNano())
 }
 
 // writeUIError 输出错误 chunk 并收尾 [DONE]。
