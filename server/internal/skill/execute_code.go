@@ -82,8 +82,8 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 
 	if env.Codex == nil || !env.Codex.Enabled() {
 		return &Result{
-			Content: "代码沙箱（execute_code）当前未启用：服务端未配置 CODEX_URL，无法执行代码。请基于其他 Skill 或知识完成请求。",
-			Summary: "沙箱未启用",
+			Content: "代码执行服务（execute_code）当前未启用：服务端未配置 CODEX_URL，无法执行代码。请基于其他 Skill 或知识完成请求。",
+			Summary: "代码执行不可用",
 			Done:    true,
 		}, nil
 	}
@@ -116,19 +116,19 @@ func (s *executeCode) Execute(ctx context.Context, env *Env, args json.RawMessag
 	resp, err := env.Codex.Exec(ctx, req)
 	recordCodexRun(ctx, env, err, resp)
 	if err != nil {
-		// 沙箱不稳定：不打断对话，降级为明确提示（模型可改用其它能力）。
+		// 执行服务不稳定：不打断对话，降级为明确提示（模型可改用其它能力）。
 		return &Result{
-			Content: "代码沙箱（execute_code）暂时不可用（" + err.Error() + "）。请勿再重试 execute_code，" +
-				"改用其它 Skill 或内置解析能力完成请求，或请用户稍后重试。",
-			Summary: "沙箱暂不可用",
+			Content: "代码执行服务（execute_code）暂时不可用（" + err.Error() + "）。请勿再重试 execute_code，" +
+				"改用其它能力完成请求，或请用户稍后重试。",
+			Summary: "执行服务暂不可用",
 			Done:    true,
 		}, nil
 	}
 	if resp == nil {
-		return &Result{Content: "沙箱无响应。", Summary: "执行无结果", Done: true}, nil
+		return &Result{Content: "执行服务无响应。", Summary: "执行无结果", Done: true}, nil
 	}
 	if resp.Error != "" {
-		return &Result{Content: "沙箱执行失败：" + resp.Error, Summary: "沙箱错误", Done: true}, nil
+		return &Result{Content: "代码执行失败：" + resp.Error, Summary: "执行失败", Done: true}, nil
 	}
 
 	var sb strings.Builder
