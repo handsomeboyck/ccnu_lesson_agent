@@ -30,6 +30,8 @@ func recordChatMetrics(ctx context.Context, st store.Store, mode, errorMsg strin
 	if usage != nil {
 		ev.PromptTokens = int64(usage.PromptTokens)
 		ev.CompletionTokens = int64(usage.CompletionTokens)
+		ev.CacheHitTokens = int64(usage.PromptCacheHitTokens)
+		ev.CacheMissTokens = int64(usage.PromptCacheMissTokens)
 	}
 	_ = st.AppendMetric(ctx, ev)
 

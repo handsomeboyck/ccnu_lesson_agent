@@ -616,9 +616,10 @@ func (s *pgStore) UpdateArtifactStorageKey(ctx context.Context, id, userID, stor
 
 func (s *pgStore) AppendMetric(ctx context.Context, ev *MetricEvent) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO metric_events (kind, mode, status, skill, prompt_tokens, completion_tokens, duration_ms, ts)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7, $8)`,
-		ev.Kind, ev.Mode, ev.Status, ev.Skill, ev.PromptTokens, ev.CompletionTokens, ev.DurationMs, ev.At)
+		`INSERT INTO metric_events (kind, mode, status, skill, prompt_tokens, completion_tokens, cache_hit_tokens, cache_miss_tokens, duration_ms, ts)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		ev.Kind, ev.Mode, ev.Status, ev.Skill, ev.PromptTokens, ev.CompletionTokens,
+		ev.CacheHitTokens, ev.CacheMissTokens, ev.DurationMs, ev.At)
 	return err
 }
 
@@ -638,6 +639,8 @@ func (s *pgStore) MetricSummary(ctx context.Context, hours int) (*MetricSummary,
 		       count(*) FILTER (WHERE kind='chat' AND status='error')::bigint,
 		       coalesce(sum(prompt_tokens) FILTER (WHERE kind='chat'),0)::bigint,
 		       coalesce(sum(completion_tokens) FILTER (WHERE kind='chat'),0)::bigint,
+		       coalesce(sum(cache_hit_tokens) FILTER (WHERE kind='chat'),0)::bigint,
+		       coalesce(sum(cache_miss_tokens) FILTER (WHERE kind='chat'),0)::bigint,
 		       coalesce(sum(duration_ms) FILTER (WHERE kind='chat'),0)::bigint,
 		       count(*) FILTER (WHERE kind='tool')::bigint,
 		       count(*) FILTER (WHERE kind='codex')::bigint,
@@ -652,7 +655,7 @@ func (s *pgStore) MetricSummary(ctx context.Context, hours int) (*MetricSummary,
 		var h time.Time
 		var b HourBucket
 		if err := rows.Scan(&h, &b.Chats, &b.ChatOK, &b.ChatErr, &b.PromptTok,
-			&b.Completion, &b.DurationSum, &b.ToolCalls, &b.CodexRuns, &b.CodexOK, &b.Asks); err != nil {
+			&b.Completion, &b.CacheHit, &b.CacheMiss, &b.DurationSum, &b.ToolCalls, &b.CodexRuns, &b.CodexOK, &b.Asks); err != nil {
 			return nil, err
 		}
 		accs[h.Unix()] = &acc{b: b}

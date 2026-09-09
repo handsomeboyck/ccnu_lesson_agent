@@ -57,11 +57,17 @@ func (m *monitorService) overview(w http.ResponseWriter, r *http.Request) {
 		tot.CodexOK += b.CodexOK
 		tot.PromptTok += b.PromptTok
 		tot.Completion += b.Completion
+		tot.CacheHit += b.CacheHit
+		tot.CacheMiss += b.CacheMiss
 		tot.DurationSum += b.DurationSum
 	}
 	avgLat := 0.0
 	if tot.Chats > 0 {
 		avgLat = float64(tot.DurationSum) / float64(tot.Chats)
+	}
+	cacheRate := 0.0
+	if cacheTotal := tot.CacheHit + tot.CacheMiss; cacheTotal > 0 {
+		cacheRate = float64(tot.CacheHit) / float64(cacheTotal) * 100
 	}
 
 	resp := map[string]any{
@@ -78,6 +84,9 @@ func (m *monitorService) overview(w http.ResponseWriter, r *http.Request) {
 			"codex_ok":  tot.CodexOK,
 			"prompt_tokens":  tot.PromptTok,
 			"completion_tokens": tot.Completion,
+			"cache_hit_tokens":  tot.CacheHit,
+			"cache_miss_tokens": tot.CacheMiss,
+			"cache_hit_rate":    cacheRate,
 			"duration_sum_ms": tot.DurationSum,
 			"avg_latency_ms":  avgLat,
 			"p50_ms":          p50,

@@ -345,6 +345,9 @@ export interface MonitorOverview {
     codex_ok: number
     prompt_tokens: number
     completion_tokens: number
+    cache_hit_tokens: number
+    cache_miss_tokens: number
+    cache_hit_rate: number
     duration_sum_ms: number
     avg_latency_ms: number
     p50_ms: number

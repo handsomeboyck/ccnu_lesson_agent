@@ -116,6 +116,8 @@ type MetricEvent struct {
 	Skill            string // kind=tool/codex 时使用
 	PromptTokens     int64
 	CompletionTokens int64
+	CacheHitTokens   int64 // 前缀缓存命中 token（DeepSeek）
+	CacheMissTokens  int64 // 前缀缓存未命中 token
 	DurationMs       int64
 	At               time.Time
 }
@@ -128,6 +130,8 @@ type HourBucket struct {
 	ChatErr     int64
 	PromptTok   int64
 	Completion  int64
+	CacheHit    int64
+	CacheMiss   int64
 	DurationSum int64
 	ToolCalls   int64
 	CodexRuns   int64

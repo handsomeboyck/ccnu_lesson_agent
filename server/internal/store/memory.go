@@ -583,6 +583,8 @@ func (s *memoryStore) MetricSummary(ctx context.Context, hours int) (*MetricSumm
 			}
 			b.PromptTok += ev.PromptTokens
 			b.Completion += ev.CompletionTokens
+			b.CacheHit += ev.CacheHitTokens
+			b.CacheMiss += ev.CacheMissTokens
 			b.DurationSum += ev.DurationMs
 		case "tool":
 			b.ToolCalls++

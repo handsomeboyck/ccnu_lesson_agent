@@ -179,6 +179,12 @@ export default function MonitorPage() {
             <StatCard label="对话轮次" value={fmtNum(a?.chats ?? 0)} sub={`成功 ${a?.chat_ok ?? 0} · 错误 ${a?.chat_err ?? 0} · 反问 ${a?.asks ?? 0}`} />
             <StatCard label="自动调用" value={fmtNum((a?.tools ?? 0) + (a?.codex_runs ?? 0))} sub={`普通工具 ${a?.tools ?? 0} · 代码执行 ${a?.codex_runs ?? 0}`} />
             <StatCard label="模型用量" value={fmtNum((a?.prompt_tokens ?? 0) + (a?.completion_tokens ?? 0))} sub={`输入 ${fmtNum(a?.prompt_tokens ?? 0)} · 输出 ${fmtNum(a?.completion_tokens ?? 0)}`} accent="var(--ccnu-blue)" />
+            <StatCard
+              label="缓存命中率"
+              value={a && (a.cache_hit_tokens ?? 0) + (a.cache_miss_tokens ?? 0) > 0 ? `${(a.cache_hit_rate ?? 0).toFixed(1)}%` : '—'}
+              sub={`命中 ${fmtNum(a?.cache_hit_tokens ?? 0)} · 未命中 ${fmtNum(a?.cache_miss_tokens ?? 0)}`}
+              accent="var(--ccnu-blue)"
+            />
             <StatCard label="平均延迟" value={`${Math.round(a?.avg_latency_ms ?? 0)}ms`} sub={`P50 ${Math.round(a?.p50_ms ?? 0)}ms · P95 ${Math.round(a?.p95_ms ?? 0)}ms`} />
             <StatCard label="代码执行成功率" value={a && a.codex_runs > 0 ? `${Math.round(((a.codex_ok ?? 0) / a.codex_runs) * 100)}%` : '—'} sub={`${a?.codex_ok ?? 0}/${a?.codex_runs ?? 0} 成功`} accent="var(--success)" />
             <StatCard label="错误数" value={fmtNum(a?.chat_err ?? 0)} sub="对话级错误" accent={a && a.chat_err ? 'var(--danger)' : undefined} />
