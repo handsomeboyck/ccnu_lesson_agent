@@ -65,7 +65,7 @@ try {
     return nav ? nav.textContent : ''
   })
   console.log('侧栏隐藏(mobile):', sidebarVisible ? '✗ 仍显示' : '✓ 已隐藏')
-  console.log('底部导航(4 Tab):', ['对话', '资料库', '我的文件', '学习功能'].every((t) => navText.includes(t)) ? '✓' : `✗ ${navText}`)
+  console.log('底部导航(学生3Tab):', ['对话', '资料库', '我的文件'].every((t) => navText.includes(t)) && !navText.includes('学习功能') ? '✓' : `✗ ${navText}`)
 
   // 移动端占位符：短文案单行
   const ph = await page.evaluate(() => document.querySelector('textarea')?.placeholder ?? '')

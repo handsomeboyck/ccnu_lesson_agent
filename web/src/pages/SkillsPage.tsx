@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, FileCode2, LogOut, Plus, Save, Trash2 } from 'lucide-react'
+import { ArrowLeft, FileCode2, Plus, Save, Trash2 } from 'lucide-react'
 import {
   deleteSkill,
   getSkillDetail,
   listSkills,
-  logout,
   saveSkill,
   type SkillInfo,
 } from '../api/client'
@@ -137,16 +136,6 @@ export default function SkillsPage() {
           <Link to="/chat" className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
             <ArrowLeft className="size-3.5" /> 回对话
           </Link>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              void logout()
-              window.location.href = '/login'
-            }}
-          >
-            <LogOut className="size-3.5" /> 退出
-          </Button>
         </div>
       </header>
 

@@ -1,19 +1,17 @@
 // 监控中心（仅 admin）：Agent 指标 + 系统/宿主指标 + 服务健康 + 对话审计
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ClipboardCopy, Download, Eye, LogOut, PackageOpen } from 'lucide-react'
+import { ArrowLeft, ClipboardCopy, Download, Eye, PackageOpen } from 'lucide-react'
 import {
   exportAllAudit,
   exportAuditConversation,
   fetchAuditTranscript,
   fetchMonitorOverview,
   listAuditConversations,
-  logout,
   type AuditConv,
   type AuditMsg,
   type MonitorOverview,
 } from '../api/client'
-import { Button } from '../components/ui/button'
 import MobileTabBar from '../components/MobileTabBar'
 
 const HOUR_LABELS = ['0点', '2点', '4点', '6点', '8点', '10点', '12点', '14点', '16点', '18点', '20点', '22点']
@@ -137,16 +135,6 @@ export default function MonitorPage() {
           <Link to="/chat" className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
             <ArrowLeft className="size-3.5" /> 回对话
           </Link>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              void logout()
-              window.location.href = '/login'
-            }}
-          >
-            <LogOut className="size-3.5" /> 退出
-          </Button>
         </div>
       </header>
 

@@ -534,9 +534,11 @@ export default function ChatPage() {
           <Link to="/artifacts" className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
             <FolderOpen className="size-4" /> 我的文件
           </Link>
-          <Link to="/skills" className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
-            <Puzzle className="size-4" /> 学习功能
-          </Link>
+          {user?.role !== 'student' && (
+            <Link to="/skills" className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
+              <Puzzle className="size-4" /> 学习功能
+            </Link>
+          )}
           {user?.role === 'admin' && (
             <Link to="/monitor" className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
               <Activity className="size-4" /> 运行监控

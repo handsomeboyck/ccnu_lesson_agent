@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, Loader2, LogOut, Trash2, Upload, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Loader2, Trash2, Upload, XCircle } from 'lucide-react'
 import {
   deleteLibraryFile,
   listLibrary,
-  logout,
   uploadLibraryFile,
   type LibraryFile,
 } from '../api/client'
@@ -120,16 +119,6 @@ export default function LibraryPage() {
             <Link to="/chat" className="inline-flex items-center gap-1.5">
               <ArrowLeft /> 回对话
             </Link>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              void logout()
-              window.location.href = '/login'
-            }}
-          >
-            <LogOut className="size-3.5" /> 退出
           </Button>
           <input ref={fileRef} type="file" multiple accept={ACCEPT} hidden onChange={pickFiles} />
         </div>

@@ -80,7 +80,7 @@ try {
   await page.goto('http://localhost:5173/skills', { waitUntil: 'domcontentloaded' })
   await new Promise((r) => setTimeout(r, 1200))
   text = await page.evaluate(() => document.body.innerText)
-  console.log('学习功能页:', text.includes('学习功能') && (text.includes('自定义') || text.includes('内置') || text.includes('加载中')) ? '✓' : '✗')
+  console.log('学习功能(学生→重定向):', !text.includes('学习功能') && text.includes('新对话') ? '✓' : '✗')
 
   await page.goto('http://localhost:5173/monitor', { waitUntil: 'domcontentloaded' })
   await new Promise((r) => setTimeout(r, 1200))

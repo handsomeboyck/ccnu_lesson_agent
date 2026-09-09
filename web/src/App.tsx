@@ -55,6 +55,14 @@ function RequireRole({ role, children }: { role: string; children: ReactNode }) 
   return children
 }
 
+/** 教职工（教师/管理员）可见；学生隐藏（如学习功能管理面）。 */
+function RequireStaff({ children }: { children: ReactNode }) {
+  const user = useAuth((s) => s.user)
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role === 'student') return <Navigate to="/chat" replace />
+  return children
+}
+
 function GuestOnly({ children }: { children: ReactNode }) {
   const user = useAuth((s) => s.user)
   if (user) return <Navigate to="/chat" replace />
@@ -96,9 +104,9 @@ export default function App() {
         <Route
           path="/skills"
           element={
-            <RequireAuth>
+            <RequireStaff>
               <SkillsPage />
-            </RequireAuth>
+            </RequireStaff>
           }
         />
         <Route

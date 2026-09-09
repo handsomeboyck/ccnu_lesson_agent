@@ -6,7 +6,6 @@ import {
   Eye,
   FolderOpen,
   ImageIcon,
-  LogOut,
   Search,
   Trash2,
   X,
@@ -17,7 +16,6 @@ import {
   deleteArtifact,
   fetchArtifact,
   listArtifacts,
-  logout,
   type ArtifactInfo,
 } from '../api/client'
 import { Button, buttonVariants } from '../components/ui/button'
@@ -194,16 +192,6 @@ export default function ArtifactsPage() {
           <Link to="/chat" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
             <ArrowLeft className="size-3.5" /> 回对话
           </Link>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              void logout()
-              window.location.href = '/login'
-            }}
-          >
-            <LogOut className="size-3.5" /> 退出
-          </Button>
         </div>
       </header>
 
