@@ -112,6 +112,13 @@ function historyToMessages(msgs: ServerMessage[]): UIMessage[] {
           data: { type: 'artifacts', artifacts: m.artifacts },
         } as UIMessage['parts'][number])
       }
+      // ask_user 触发时的提问卡（历史回看重建 AskCard）
+      if (m.ask && m.ask.question) {
+        parts.push({
+          type: 'data-ccnu',
+          data: { type: 'ask', question: m.ask.question, options: m.ask.options ?? [] },
+        } as UIMessage['parts'][number])
+      }
     }
     parts.push({ type: 'text', text: m.content } as UIMessage['parts'][number])
     return { id: m.id, role: m.role === 'user' ? 'user' : 'assistant', parts } as UIMessage
@@ -253,19 +260,22 @@ export default function ChatPage() {
     }
   }, [messages])
 
-  // resumeStream: 从后台流重放/续传，结果直接 setMessages
+  // resumeStream: 从后台流重放/续传，结果仅替换 assistant 消息（保留 DB 里的用户消息）
   const resumeStream = useCallback(async (convId: string, streamId: string) => {
     try {
       const token = useAuth.getState().accessToken ?? ''
+      // 先从 DB 取用户消息（不做完整 historyToMessages，只取 user 部分）
+      const { messages: dbMsgs } = await listMessages(convId)
+      const userMsg: any = dbMsgs.length > 0 && dbMsgs[dbMsgs.length - 1].role === 'assistant'
+        ? historyToMessages(dbMsgs.slice(0, -1)).find(m => m.role === 'user')
+        : historyToMessages(dbMsgs).find(m => m.role === 'user')
+      // 重放流
       const r = await fetch(`/v1/chat/stream/${streamId}`, { headers: { Authorization: `Bearer ${token}` } })
       if (!r.ok) return
       const rd = r.body?.getReader(); if (!rd) return
       const dc = new TextDecoder(); let buf = ''
-      // 收集工具调用轨迹
-      const toolSteps: any[] = []
-      let textContent = ''
-      let reasoningText = ''
-      let artifacts: any[] = []
+      let textContent = '', reasoningText = ''
+      const toolSteps: any[] = []; const artifacts: any[] = []; let askData: any = null
       let finished = false
       while (!finished) {
         const { done, value } = await rd.read(); if (done) break
@@ -279,31 +289,32 @@ export default function ChatPage() {
           if (uid === 'text-delta') textContent += c.delta ?? ''
           else if (uid === 'reasoning-delta') reasoningText += c.delta ?? ''
           else if (uid === 'tool-input-start' || uid === 'tool-input-delta' || uid === 'tool-output-available' || uid === 'tool-input-available') {
-            // 收集工具卡片
-            const existing = toolSteps.find(t => t.name === c.toolName)
+            const existing = toolSteps.find(t => t.name === (c.toolName || c.tool_name))
             if (existing) {
-              if (uid === 'tool-output-available') { existing.summary = c.output?.summary; existing.artifacts = c.output?.artifacts ?? []; existing.done = true }
+              if (uid === 'tool-output-available') { existing.summary = c.output?.summary ?? ''; existing.artifacts = c.output?.artifacts ?? []; existing.done = true }
             } else if (uid.startsWith('tool-input')) {
-              toolSteps.push({ name: c.toolName, call_id: c.toolCallId, summary: '', artifacts: [], done: false })
+              toolSteps.push({ name: c.toolName ?? c.tool_name ?? '', call_id: c.toolCallId ?? '', summary: '', artifacts: [], done: false })
             }
-          }
-          else if (c.type === 'data-ccnu' && c.data?.type === 'artifacts' && c.data.artifacts) {
+          } else if (c.type === 'data-ccnu' && c.data?.type === 'artifacts' && c.data.artifacts) {
             artifacts.push(...c.data.artifacts)
+          } else if (c.type === 'data-ccnu' && c.data?.type === 'ask' && c.data.question) {
+            // ask_user 提问卡：加入 parts 并在 assistant 消息中显示
+            askData = c.data
           }
         }
       }
-      // 用解析结果重建 UIMessage 列表（替换本地消息）
-      if (textContent) {
-        const parts: any[] = []
-        if (reasoningText) parts.push({ type: 'reasoning', text: reasoningText, state: 'done' })
-        for (const t of toolSteps) {
-          parts.push({ type: `tool-${t.name}`, toolCallId: t.call_id ?? '', state: 'output-available', output: { summary: t.summary, artifacts: t.artifacts ?? [] }, providerExecuted: true })
-        }
-        if (artifacts.length > 0) parts.push({ type: 'data-ccnu', data: { type: 'artifacts', artifacts } })
-        parts.push({ type: 'text', text: textContent })
-        convIdRef.current = convId
-        setMessages([{ id: 'resume-' + streamId, role: 'assistant', parts } as any])
+      // 仅替换 assistant 部分，用户消息保留
+      const parts: any[] = []
+      if (reasoningText) parts.push({ type: 'reasoning', text: reasoningText, state: 'done' })
+      for (const t of toolSteps) {
+        parts.push({ type: `tool-${t.name}`, toolCallId: t.call_id ?? '', state: 'output-available', output: { summary: t.summary, artifacts: t.artifacts ?? [] }, providerExecuted: true })
       }
+      if (artifacts.length > 0) parts.push({ type: 'data-ccnu', data: { type: 'artifacts', artifacts } })
+      if (askData) parts.push({ type: 'data-ccnu', data: { type: 'ask', question: askData.question, options: askData.options ?? [] } })
+      if (textContent) parts.push({ type: 'text', text: textContent })
+      const assistant = { id: 'resume-' + streamId, role: 'assistant', parts } as any
+      convIdRef.current = convId
+      setMessages(userMsg ? [userMsg, assistant] : [assistant])
     } catch {}
   }, [setMessages])
 
@@ -345,9 +356,6 @@ export default function ChatPage() {
         convIdRef.current = id
         attachRef.current = []
         setMessages(historyToMessages(msgs))
-        // Resume Streams：若该会话有活跃流，后台重放续传（替代轮询）
-        const sid = streamMapRef.current[id]
-        if (sid) void resumeStream(id, sid)
         requestAnimationFrame(() => {
           const el = scrollRef.current
           if (el) el.scrollTop = el.scrollHeight
@@ -358,6 +366,18 @@ export default function ChatPage() {
     },
     [conversations, streaming, stop, setMessages, resumeStream],
   )
+
+  // 切换/恢复：若有活跃流则重放续传；否则走 DB 历史
+  useEffect(() => {
+    if (!activeId) return
+    const sid = streamMapRef.current[activeId]
+    if (sid) {
+      void resumeStream(activeId, sid)
+      return
+    }
+    // 无活跃流：从 DB 加载历史（openConversation 已处理，此处兜底）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId])
 
   // 刷新后自动恢复上次打开的会话（等会话列表真正加载完成再消费，避免竞态）
   useEffect(() => {

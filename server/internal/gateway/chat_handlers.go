@@ -414,6 +414,10 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			Content:        assistantContent,
 			Model:          c.model,
 		}
+		if pendingAsk != nil {
+			b, _ := json.Marshal(map[string]any{"question": pendingAsk.Question, "options": pendingAsk.Options})
+			assistantMsg.AskJSON = string(b)
+		}
 		if usage != nil {
 			b, _ := json.Marshal(usage)
 			assistantMsg.UsageJSON = string(b)
