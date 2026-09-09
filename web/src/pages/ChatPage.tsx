@@ -847,7 +847,8 @@ export default function ChatPage() {
                 ))}
               </div>
             )}
-            <div className="flex items-end gap-2 rounded-[20px] border border-border bg-white p-2 shadow-[0_1px_3px_rgba(20,35,60,0.06)] transition-shadow duration-200 focus-within:border-ccnu-blue/50 focus-within:shadow-[0_2px_10px_rgba(27,75,155,0.12)] focus-within:ring-4 focus-within:ring-ccnu-blue/10">
+            {/* 聚焦不显示高亮矩形/光环，只保留光标（用户明确要求） */}
+            <div className="flex items-end gap-2 rounded-[20px] border border-border bg-white p-2 shadow-[0_1px_3px_rgba(20,35,60,0.06)]">
               <input
                 ref={fileInputRef}
                 type="file"

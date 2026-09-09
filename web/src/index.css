@@ -59,7 +59,13 @@
 }
 .input-base:focus {
   border-color: var(--color-ccnu-blue);
-  box-shadow: 0 0 0 2px rgba(27, 75, 155, 0.15);
+}
+
+/* 聚焦仅保留光标：去掉浏览器默认的矩形 outline（输入框不显示高亮框） */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
 }
 
 :root {

@@ -223,7 +223,7 @@ export default function ArtifactsPage() {
       {/* 工具栏：搜索 + 计数 */}
       {items.length > 0 && (
         <div className="mb-4 flex items-center gap-3">
-          <div className="flex max-w-xs flex-1 items-center gap-2 rounded-md border border-input bg-card px-2.5 transition-shadow focus-within:border-ccnu-blue focus-within:shadow-[0_0_0_2px_rgba(27,75,155,0.15)]">
+          <div className="flex max-w-xs flex-1 items-center gap-2 rounded-md border border-input bg-card px-2.5">
             <Search className="size-4 shrink-0 text-muted-foreground" />
             <input
               value={search}
