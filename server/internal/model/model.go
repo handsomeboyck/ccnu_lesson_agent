@@ -140,6 +140,10 @@ type ChatRequest struct {
 	Tools    []Tool
 	Model    string // 空则用默认
 	Tag      string // 埋点标签（agent round / skill 名），仅用于日志
+
+	// DisableThinking 关闭思考模式（不下发 reasoning_effort/thinking）。
+	// 用于"照文档执行"类的技能内层调用——深度思考收益低，却能省下几十秒延迟。
+	DisableThinking bool
 }
 
 // streamStat 记录一次流式调用的耗时画像（埋点日志）。
@@ -227,15 +231,23 @@ type openAIStreamChunk struct {
 
 // buildOpenAIRequest 组装 OpenAI 兼容请求（含思考模式参数）。
 // 思考模式：OPENAI_REASONING_EFFORT 非空时开启；thinking 开关仅对 deepseek 域下发（OpenAI 无此参数）。
+// req.DisableThinking 时对 deepseek 显式下发 thinking:disabled（不传时 v4-flash 默认仍思考）。
 func (p *OpenAIProvider) buildOpenAIRequest(req ChatRequest, stream bool) openAIChatRequest {
 	model := req.Model
 	if model == "" {
 		model = p.cfg.OpenAIModel
 	}
 	r := openAIChatRequest{Model: model, Messages: req.Messages, Tools: req.Tools, Stream: stream}
+	deepseek := strings.Contains(p.cfg.OpenAIBaseURL, "deepseek.com")
+	if req.DisableThinking {
+		if deepseek {
+			r.Thinking = &thinkingOpenAIRequest{Type: "disabled"}
+		}
+		return r
+	}
 	if effort := p.cfg.OpenAIReasoningEffort; effort != "" {
 		r.ReasoningEffort = effort
-		if strings.Contains(p.cfg.OpenAIBaseURL, "deepseek.com") {
+		if deepseek {
 			r.Thinking = &thinkingOpenAIRequest{Type: "enabled"}
 		}
 	}

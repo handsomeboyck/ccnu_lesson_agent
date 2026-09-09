@@ -312,8 +312,9 @@ func streamDocSkill(ctx context.Context, prov model.Provider, env *skill.Env, ou
 			{Role: model.RoleSystem, Content: doc.ExecutorSystem()},
 			{Role: model.RoleUser, Content: req},
 		},
-		Model: env.ModelName,
-		Tag:   "skill-stream:" + doc.Name(),
+		Model:           env.ModelName,
+		Tag:             "skill-stream:" + doc.Name(),
+		DisableThinking: true, // 照文档执行无需深度思考：省掉几十秒 reasoning（生产实测 44s+）
 	}
 
 	// 瞬时错误（连接/HTTP 阶段）重试一次
