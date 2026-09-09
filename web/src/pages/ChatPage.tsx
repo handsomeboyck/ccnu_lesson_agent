@@ -186,6 +186,8 @@ export default function ChatPage() {
   const attachRef = useRef<string[]>([])
   const sendingRef = useRef(false) // 同步发送锁：防止双击/连发产生并发流（会破坏 SDK 消息列表）
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null) // 消息区滚动容器
+  const stickRef = useRef(true)                   // 是否贴底：贴底才自动跟随，用户上滑则停手
   const fileInputRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null) // 输入框（自动增高）
   const lastConvRef = useRef<string | null>(null) // 上次打开的会话（刷新恢复）
@@ -255,6 +257,7 @@ export default function ChatPage() {
   const openConversation = useCallback(
     async (id: string) => {
       if (streaming) stop()
+      stickRef.current = true // 打开会话 → 跟随到底
       setActiveId(id)
       setError('')
       const conv = conversations.find((c) => c.id === id)
@@ -264,6 +267,10 @@ export default function ChatPage() {
         convIdRef.current = id
         attachRef.current = []
         setMessages(historyToMessages(msgs))
+        requestAnimationFrame(() => {
+          const el = scrollRef.current
+          if (el) el.scrollTop = el.scrollHeight
+        })
       } catch (err) {
         setError(err instanceof Error ? err.message : '加载消息失败')
       }
@@ -299,6 +306,7 @@ export default function ChatPage() {
 
   const newChat = useCallback(() => {
     if (streaming) stop()
+    stickRef.current = true // 新对话 → 跟随到底
     setActiveId(null)
     setError('')
     convIdRef.current = ''
@@ -370,6 +378,7 @@ export default function ChatPage() {
     if (!accessToken || streaming || sendingRef.current) return
     if (!content && pendingFiles.length === 0) return
     sendingRef.current = true
+    stickRef.current = true // 主动发送 → 恢复贴底跟随
 
     let attachIds: string[] = []
     const failed: string[] = []
@@ -406,7 +415,13 @@ export default function ChatPage() {
     }
     setPendingFiles([])
     if (failed.length > 0) setError(`部分附件失败：${failed.join('；')}`)
+    stickRef.current = true
     void sendMessage({ text: display })
+    // 主动发送 → 强制滚到底（不依赖滚动事件时序）
+    requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    })
   }
 
   // ---- 会话操作 ----
@@ -474,9 +489,22 @@ export default function ChatPage() {
     }
   }
 
-  // ---- 自动滚动 ----
+  // ---- 自动滚动（贴底才跟随：用户上滑读历史时停手，回到底部或主动发送后恢复）----
+  const STICK_THRESHOLD = 120 // 距底部小于该像素视为"贴底"
+  const onMessagesScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD
+  }
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = scrollRef.current
+    if (!el || !stickRef.current) return
+    // 实时读位置（同步，避免 scroll 事件异步导致的竞态）：已上滑则不跟随并停手
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > STICK_THRESHOLD * 2) {
+      stickRef.current = false
+      return
+    }
+    el.scrollTop = el.scrollHeight // 瞬时定位，避免流式 chunk 的 smooth 抖动
   }, [messages, status])
 
   // ---- 渲染 ----
@@ -730,6 +758,8 @@ export default function ChatPage() {
 
         {/* 消息区 */}
         <div
+          ref={scrollRef}
+          onScroll={onMessagesScroll}
           className={`relative min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 ${dragActive ? 'bg-ccnu-blue/5' : ''}`}
           onDragOver={(e) => {
             e.preventDefault()
