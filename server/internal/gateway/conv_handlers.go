@@ -33,6 +33,7 @@ type msgView struct {
 	Reasoning string               `json:"reasoning,omitempty"`  // 思考链全文（历史回看思考卡片）
 	Artifacts []skill.ArtifactView `json:"artifacts,omitempty"`  // 该消息关联产物（历史回看）
 	ToolSteps []toolStepRecord     `json:"tool_steps,omitempty"` // 工具执行轨迹（历史回看工具卡片）
+	Ask       *json.RawMessage     `json:"ask,omitempty"`        // ask_user 触发时的提问与选项（{question, options}），历史回看 AskCard
 	CreatedAt time.Time            `json:"created_at"`
 }
 
@@ -52,6 +53,12 @@ func toMsgView(m *store.Message) msgView {
 		var steps []toolStepRecord
 		if json.Unmarshal([]byte(m.ToolStepsJSON), &steps) == nil && len(steps) > 0 {
 			v.ToolSteps = steps
+		}
+	}
+	if m.AskJSON != "" {
+		var raw json.RawMessage
+		if json.Unmarshal([]byte(m.AskJSON), &raw) == nil {
+			v.Ask = &raw
 		}
 	}
 	return v

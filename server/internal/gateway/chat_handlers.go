@@ -35,6 +35,9 @@ type chatService struct {
 	genMu     sync.Mutex
 	genCancel map[string]context.CancelFunc
 	genStart  map[string]time.Time
+
+	// 流缓冲：streamId → ring buffer（Resume Streams：断线重连可重放）
+	streams *streamRegistry
 }
 
 // genTimeout 单次生成的最长运行时间（后台任务兜底，防止泄漏）。
@@ -182,9 +185,16 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	// 流缓冲（Resume Streams）：断线重连可从此 streamId 重放
+	streamID, streamBuf := c.streams.create()
+	defer func() { streamBuf.close(); time.AfterFunc(5*time.Minute, func() { c.streams.remove(streamID) }) }()
+	buf := func(m map[string]any) { writeUIChunk(w, m); streamBuf.append(mustMarshal(m)) }
+	bufD := func(m map[string]any) { writeUIData(w, m); streamBuf.append(mustMarshal(m)) }
+	bufRaw := func(v any) { writeUIChunk(w, v); b, _ := json.Marshal(v); streamBuf.append(b) }
+
 	// 首个 chunk：消息开始（messageId 每次流唯一，前端用作消息 key）
-	writeUIChunk(w, map[string]any{"type": "start", "messageId": streamMsgID()})
-	writeUIData(w, map[string]any{"type": "meta", "conversation_id": conv.ID})
+	buf(map[string]any{"type": "start", "messageId": streamMsgID()})
+	bufD(map[string]any{"type": "meta", "conversation_id": conv.ID, "streamId": streamID})
 	flusher.Flush()
 
 	// 5. 驱动 Agent（LLM ↔ Skill 工具循环）
@@ -240,7 +250,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	// endReasoning 输出 reasoning-end（若还在流式思考中），并允许下一轮重新开始思考 part。
 	endReasoning := func() {
 		if reasoningStarted && !reasoningEnded && connected {
-			writeUIChunk(w, map[string]any{"type": "reasoning-end", "id": reasoningPartID})
+			buf(map[string]any{"type": "reasoning-end", "id": reasoningPartID})
 			reasoningEnded = true
 			reasoningStarted = false // 多轮工具循环中新一轮思考可重新 start
 			flusher.Flush()
@@ -252,26 +262,26 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		case agent.EventReasoning:
 			reasoningSb.WriteString(ev.Content)
 			if !reasoningStarted {
-				writeUIChunk(w, map[string]any{"type": "reasoning-start", "id": reasoningPartID})
+				buf(map[string]any{"type": "reasoning-start", "id": reasoningPartID})
 				reasoningStarted = true
 			}
-			writeUIChunk(w, map[string]any{"type": "reasoning-delta", "id": reasoningPartID, "delta": ev.Content})
+			buf(map[string]any{"type": "reasoning-delta", "id": reasoningPartID, "delta": ev.Content})
 			flusher.Flush()
 		case agent.EventDelta:
 			endReasoning() // 思考结束 → 正式回答
 			sb.WriteString(ev.Content)
 			if !textStarted {
-				writeUIChunk(w, map[string]any{"type": "text-start", "id": textPartID})
+				buf(map[string]any{"type": "text-start", "id": textPartID})
 				textStarted = true
 			}
-			writeUIChunk(w, map[string]any{"type": "text-delta", "id": textPartID, "delta": ev.Content})
+			buf(map[string]any{"type": "text-delta", "id": textPartID, "delta": ev.Content})
 			flusher.Flush()
 		case agent.EventToolInput:
 			// 工具参数流式：首个分片先发 start（结束思考 + 卡片出现），后续分片实时透传
 			if ev.Tool != nil && ev.Tool.ID != "" {
 				if !toolStarted[ev.Tool.ID] {
 					endReasoning()
-					writeUIChunk(w, map[string]any{
+					buf(map[string]any{
 						"type":       "tool-input-start",
 						"toolCallId": ev.Tool.ID,
 						"toolName":   ev.Tool.Name,
@@ -279,7 +289,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 					toolStarted[ev.Tool.ID] = true
 				}
 				if ev.Content != "" {
-					writeUIChunk(w, map[string]any{
+					buf(map[string]any{
 						"type":           "tool-input-delta",
 						"toolCallId":     ev.Tool.ID,
 						"inputTextDelta": ev.Content,
@@ -292,7 +302,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			if ev.Tool != nil {
 				// 若参数未流式（start 未发过），此处补发 start
 				if !toolStarted[ev.Tool.ID] {
-					writeUIChunk(w, map[string]any{
+					buf(map[string]any{
 						"type":       "tool-input-start",
 						"toolCallId": ev.Tool.ID,
 						"toolName":   ev.Tool.Name,
@@ -303,7 +313,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 				if err := json.Unmarshal(ev.Tool.Arguments, &args); err != nil {
 					args = string(ev.Tool.Arguments)
 				}
-				writeUIChunk(w, map[string]any{
+				buf(map[string]any{
 					"type":              "tool-input-available",
 					"toolCallId":        ev.Tool.ID,
 					"toolName":          ev.Tool.Name,
@@ -328,7 +338,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			// 原生工具 chunk：output-available（providerExecuted=服务端已执行）
 			// 产物不走工具卡（避免展开才能看），改为在主链路发 data-ccnu artifacts 块
 			output := map[string]any{"summary": ev.Summary}
-			writeUIChunk(w, map[string]any{
+			buf(map[string]any{
 				"type":             "tool-output-available",
 				"toolCallId":       callID,
 				"output":           output,
@@ -336,7 +346,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			})
 			if len(ev.Artifacts) > 0 {
 				// 主链路产物卡（无需展开工具即可见；同时收集持久化供历史回看）
-				writeUIData(w, map[string]any{"type": "artifacts", "artifacts": ev.Artifacts})
+				bufD(map[string]any{"type": "artifacts", "artifacts": ev.Artifacts})
 				for _, a := range ev.Artifacts {
 					if a.ID != "" {
 						msgArtifacts = append(msgArtifacts, skill.ArtifactView{ID: a.ID, Name: a.Name, Mime: a.Mime})
@@ -360,7 +370,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		case agent.EventAsk:
 			pendingAsk = &skill.Ask{Question: ev.Question, Options: ev.Options}
 			// 问题本身也作为一条可见消息给前端（自定义 data chunk）
-			writeUIData(w, map[string]any{
+			bufD(map[string]any{
 				"type":     "ask",
 				"question": ev.Question,
 				"options":  ev.Options,
@@ -378,7 +388,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 
 	// 断开后不再写 SSE（text-end 等收尾 chunk 只在连接存活时发送）
 	if connected && textStarted {
-		writeUIChunk(w, map[string]any{"type": "text-end", "id": textPartID})
+		buf(map[string]any{"type": "text-end", "id": textPartID})
 		flusher.Flush()
 	}
 	endReasoning() // 流结束时兜底关闭思考 part（连接存活时）
@@ -403,6 +413,13 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			Role:           "assistant",
 			Content:        assistantContent,
 			Model:          c.model,
+		}
+		if pendingAsk != nil {
+			b, _ := json.Marshal(map[string]any{"question": pendingAsk.Question, "options": pendingAsk.Options})
+			assistantMsg.AskJSON = string(b)
+			log.Printf("[ask] persisted ask_json len=%d", len(assistantMsg.AskJSON))
+		} else {
+			log.Printf("[ask] pendingAsk is nil, sb=%q", sb.String())
 		}
 		if usage != nil {
 			b, _ := json.Marshal(usage)
@@ -429,7 +446,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	if errorMsg != "" && sb.Len() == 0 && pendingAsk == nil {
 		writeUIError(w, errorMsg)
 	} else if sb.Len() > 0 || pendingAsk != nil {
-		writeUIData(w, map[string]any{
+		bufD(map[string]any{
 			"type":        "done",
 			"message_id":  assistantID,
 			"usage":       usage,
@@ -439,8 +456,8 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		if errorMsg != "" {
 			finishReason = "error"
 		}
-		writeUIChunk(w, map[string]any{"type": "finish", "finishReason": finishReason})
-		writeUIChunk(w, "DONE")
+		buf(map[string]any{"type": "finish", "finishReason": finishReason})
+		bufRaw("DONE")
 	} else {
 		writeUIError(w, "no content generated")
 	}
@@ -461,6 +478,11 @@ type toolStepRecord struct {
 // 响应头 `x-vercel-ai-ui-message-stream: v1`。前端由 Vercel AI SDK useChat 消费。
 
 // writeUIChunk 输出一个 UI message chunk（map 或 [DONE] 终止符）。
+func mustMarshal(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}
+
 func writeUIChunk(w http.ResponseWriter, chunk any) {
 	if s, ok := chunk.(string); ok && s == "DONE" {
 		fmt.Fprint(w, "data: [DONE]\n\n")

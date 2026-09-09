@@ -64,6 +64,7 @@ type Message struct {
 	ArtifactsJSON  string // 该消息关联的产物摘要（[{id,name,mime}]），供历史回看
 	ToolStepsJSON  string // 该消息的工具执行轨迹（[{name,summary,duration_ms,artifacts}]），供历史回看
 	Reasoning      string // 思考链全文（思考模式 reasoning_content），供历史回看
+	AskJSON        string // ask_user 触发时的提问与选项 JSON（{question, options}），供历史回看 AskCard
 	CreatedAt      time.Time
 }
 

@@ -191,6 +191,7 @@ export interface ServerMessage {
   reasoning?: string // 思考链全文（思考模式，历史回看）
   artifacts?: ServerMessageArtifact[]
   tool_steps?: ServerMessageToolStep[]
+  ask?: { question: string; options?: string[] } // ask_user 触发时的提问与选项（历史回看 AskCard）
   created_at: string
 }
 

@@ -26,7 +26,8 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	skillH := &skillService{loader: loader, registry: reg}
 	chatH := &chatService{store: st, conv: convH, provider: prov, registry: reg,
 		codex: codexCli, uploadDir: cfg.UploadDir, artifactDir: cfg.ArtifactDir, model: modelName,
-		genCancel: map[string]context.CancelFunc{}, genStart: map[string]time.Time{}}
+		genCancel: map[string]context.CancelFunc{}, genStart: map[string]time.Time{},
+		streams: newStreamRegistry()}
 	chatH.attach = &chatAttachmentService{store: st, uploadDir: cfg.UploadDir}
 	monH := &monitorService{store: st, codex: codexCli, started: time.Now()}
 
@@ -64,6 +65,8 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 
 	// 对话（SSE，需登录）
 	mux.HandleFunc("POST /v1/chat", authH.requireAuth(chatH.stream))
+	// 流重放：断线后从指定 seq 续传（需登录）
+	mux.HandleFunc("GET /v1/chat/stream/{streamId}", authH.requireAuth(chatH.handleStreamReplay))
 	// 显式停止后台生成（需登录）
 	mux.HandleFunc("POST /v1/chat/stop", authH.requireAuth(chatH.handleStop))
 	// 正在后台生成的会话列表（刷新恢复用，需登录）
