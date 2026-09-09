@@ -124,6 +124,10 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+
+	// DeepSeek 前缀缓存（自动缓存，命中即折扣计费）
+	PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens,omitempty"`
 }
 
 // Provider 是 LLM 供应商抽象。
@@ -166,9 +170,10 @@ func (s *streamStat) log(req ChatRequest) {
 	if !s.reasoningStart.IsZero() && !s.reasoningEnd.IsZero() {
 		rsn = s.reasoningEnd.Sub(s.reasoningStart)
 	}
-	ti, to := 0, 0
+	ti, to, ch, cm := 0, 0, 0, 0
 	if s.usage != nil {
 		ti, to = s.usage.PromptTokens, s.usage.CompletionTokens
+		ch, cm = s.usage.PromptCacheHitTokens, s.usage.PromptCacheMissTokens
 	}
 	errStr := ""
 	if s.err != nil {
@@ -178,8 +183,8 @@ func (s *streamStat) log(req ChatRequest) {
 	if model == "" {
 		model = "(default)"
 	}
-	log.Printf("[llm] tag=%s model=%s type=stream dur=%.1fs ttfb=%.2fs reasoning=%.1fs text=%d tok_in=%d tok_out=%d err=%q",
-		req.Tag, model, dur.Seconds(), ttfb.Seconds(), rsn.Seconds(), s.textLen, ti, to, errStr)
+	log.Printf("[llm] tag=%s model=%s type=stream dur=%.1fs ttfb=%.2fs reasoning=%.1fs text=%d tok_in=%d tok_out=%d cache_hit=%d cache_miss=%d err=%q",
+		req.Tag, model, dur.Seconds(), ttfb.Seconds(), rsn.Seconds(), s.textLen, ti, to, ch, cm, errStr)
 }
 
 // New 依据配置创建 Provider：有 API key 用 OpenAI，否则用 Demo（便于无 key 联调）。
@@ -287,9 +292,10 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ChatRequest) (<-cha
 func (p *OpenAIProvider) Complete(ctx context.Context, req ChatRequest) (content string, usage *Usage, err error) {
 	start := time.Now()
 	defer func() {
-		ti, to := 0, 0
+		ti, to, ch, cm := 0, 0, 0, 0
 		if usage != nil {
 			ti, to = usage.PromptTokens, usage.CompletionTokens
+			ch, cm = usage.PromptCacheHitTokens, usage.PromptCacheMissTokens
 		}
 		errStr := ""
 		if err != nil {
@@ -299,8 +305,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req ChatRequest) (content
 		if model == "" {
 			model = "(default)"
 		}
-		log.Printf("[llm] tag=%s model=%s type=complete dur=%.1fs tok_in=%d tok_out=%d err=%q",
-			req.Tag, model, time.Since(start).Seconds(), ti, to, errStr)
+		log.Printf("[llm] tag=%s model=%s type=complete dur=%.1fs tok_in=%d tok_out=%d cache_hit=%d cache_miss=%d err=%q",
+			req.Tag, model, time.Since(start).Seconds(), ti, to, ch, cm, errStr)
 	}()
 	body, err := json.Marshal(p.buildOpenAIRequest(req, false))
 	if err != nil {
