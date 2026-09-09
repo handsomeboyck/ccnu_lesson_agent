@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/extrame/xls"
 	"github.com/ledongthuc/pdf"
 	"github.com/xuri/excelize/v2"
 )
@@ -44,13 +45,13 @@ func ParseBytes(filename string, data []byte) (string, error) {
 	case "docx":
 		return parseDOCX(data)
 	case "doc":
-		// 老式 Word 二进制（6.0/95/97-2003）：用 catdoc 提取文本
-		return execText("catdoc", nil, data)
+		// 老式 Word 二进制（6.0/95/97-2003）：用 antiword 提取文本（alpine 包）
+		return execText("antiword", nil, data, ".doc")
 	case "xlsx":
 		return parseXLSX(data)
 	case "xls":
-		// 老式 Excel 二进制：用 catdoc 套件中的 xls2csv 提取
-		return execText("xls2csv", nil, data)
+		// 老式 Excel 二进制：纯 Go 解析（extrame/xls，无 OS 依赖）
+		return parseXLS(data)
 	case "txt", "md", "csv", "markdown":
 		return string(data), nil
 	default:
@@ -58,9 +59,10 @@ func ParseBytes(filename string, data []byte) (string, error) {
 	}
 }
 
-// execText 用外部命令行工具从字节数据提取文本（catdoc/xls2csv；服务端安装 catdoc 包提供）。
-func execText(cmd string, args []string, data []byte) (string, error) {
-	f, err := os.CreateTemp("", "ccnu-ingest-*")
+// execText 用外部命令行工具从字节数据提取文本（antiword 等；服务端需安装对应包）。
+// suffix 用于临时文件后缀（部分工具按扩展名识别格式，如 antiword 要求 .doc）。
+func execText(cmd string, args []string, data []byte, suffix string) (string, error) {
+	f, err := os.CreateTemp("", "ccnu-ingest-*"+suffix)
 	if err != nil {
 		return "", err
 	}
@@ -208,6 +210,35 @@ func parseXLSX(data []byte) (string, error) {
 				continue
 			}
 			sb.WriteString(strings.Join(trimAll(row), " | "))
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String(), nil
+}
+
+// parseXLS 纯 Go 解析老式 Excel（BIFF8/BIFF5，extrame/xls）：逐工作表逐行导出文本。
+func parseXLS(data []byte) (string, error) {
+	wb, err := xls.OpenReader(bytes.NewReader(data), "utf-8")
+	if err != nil {
+		return "", fmt.Errorf("xls open: %w", err)
+	}
+	var sb strings.Builder
+	for si := 0; si < wb.NumSheets(); si++ {
+		sheet := wb.GetSheet(si)
+		if sheet == nil {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("【工作表 %d】\n", si+1))
+		for r := 0; r <= int(sheet.MaxRow); r++ {
+			row := sheet.Row(r)
+			if row == nil {
+				continue
+			}
+			cells := make([]string, 0, row.LastCol())
+			for c := 0; c < row.LastCol(); c++ {
+				cells = append(cells, strings.TrimSpace(row.Col(c)))
+			}
+			sb.WriteString(strings.Join(cells, " | "))
 			sb.WriteString("\n")
 		}
 	}

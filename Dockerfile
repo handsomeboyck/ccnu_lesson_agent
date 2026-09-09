@@ -20,8 +20,8 @@ RUN mkdir -p /out/skills && cp -r skills/* /out/skills/ 2>/dev/null || true
 
 # 阶段3：运行镜像（alpine 最小）
 FROM alpine:3.20
-# catdoc：老式 .doc（catdoc）与 .xls（xls2csv）文本提取
-RUN apk add --no-cache ca-certificates tzdata catdoc && adduser -D -u 10001 app
+# antiword：老式 .doc（Word 6/95/97-2003）文本提取（.xls 用纯 Go 解析，无 OS 依赖）
+RUN apk add --no-cache ca-certificates tzdata antiword && adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=server /out/api /app/api
 COPY --from=web /app/web/dist /app/web/dist
