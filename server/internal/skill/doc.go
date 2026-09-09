@@ -206,7 +206,7 @@ func (d *DocSkill) Execute(ctx context.Context, env *Env, args json.RawMessage) 
 	if req == "" {
 		req = "请按技能说明执行。"
 	}
-	content, _, err := completeWithRetry(ctx, env, sys, req)
+	content, _, err := completeWithRetry(ctx, env, sys, req, "skill:"+d.Meta.Name)
 	if err != nil {
 		// 友好化：瞬时模型故障与技能逻辑错误分开提示（工具卡可读）
 		return nil, fmt.Errorf("%s 执行失败（模型暂时不可用，请稍后重试）：%v", d.Meta.Name, err)
@@ -239,7 +239,7 @@ func (d *DocSkill) Execute(ctx context.Context, env *Env, args json.RawMessage) 
 }
 
 // completeWithRetry 文档技能执行器对模型的二次调用：瞬时错误（限流/5xx/超时）重试一次。
-func completeWithRetry(ctx context.Context, env *Env, sys, req string) (string, *model.Usage, error) {
+func completeWithRetry(ctx context.Context, env *Env, sys, req, tag string) (string, *model.Usage, error) {
 	attempt := func() (string, *model.Usage, error) {
 		return env.Model.Complete(ctx, model.ChatRequest{
 			Messages: []model.Msg{
@@ -247,6 +247,7 @@ func completeWithRetry(ctx context.Context, env *Env, sys, req string) (string, 
 				{Role: model.RoleUser, Content: req},
 			},
 			Model: env.ModelName,
+			Tag:   tag,
 		})
 	}
 	content, usage, err := attempt()

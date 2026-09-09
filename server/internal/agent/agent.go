@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -187,9 +188,15 @@ func runLLMLoop(ctx context.Context, prov model.Provider, reg *skill.Registry, e
 	msgs = append(msgs, history...)
 
 	var total *model.Usage
+	loopStart := time.Now()
+	roundsUsed := 0
+	defer func() {
+		log.Printf("[agent] mode=%s rounds=%d dur=%.1fs", mode, roundsUsed, time.Since(loopStart).Seconds())
+	}()
 
 	for round := 1; round <= MaxToolRounds; round++ {
-		evCh, err := prov.ChatStream(ctx, model.ChatRequest{Messages: msgs, Tools: tools, Model: modelName})
+		roundsUsed = round
+		evCh, err := prov.ChatStream(ctx, model.ChatRequest{Messages: msgs, Tools: tools, Model: modelName, Tag: fmt.Sprintf("agent-round-%d", round)})
 		if err != nil {
 			out <- Event{Kind: EventError, Err: err}
 			return

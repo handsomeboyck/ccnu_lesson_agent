@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -138,6 +139,43 @@ type ChatRequest struct {
 	Messages []Msg
 	Tools    []Tool
 	Model    string // 空则用默认
+	Tag      string // 埋点标签（agent round / skill 名），仅用于日志
+}
+
+// streamStat 记录一次流式调用的耗时画像（埋点日志）。
+type streamStat struct {
+	start          time.Time
+	firstDataAt    time.Time
+	reasoningStart time.Time
+	reasoningEnd   time.Time
+	textLen        int
+	usage          *Usage
+	err            error
+}
+
+func (s *streamStat) log(req ChatRequest) {
+	var dur, ttfb, rsn time.Duration
+	dur = time.Since(s.start)
+	if !s.firstDataAt.IsZero() {
+		ttfb = s.firstDataAt.Sub(s.start)
+	}
+	if !s.reasoningStart.IsZero() && !s.reasoningEnd.IsZero() {
+		rsn = s.reasoningEnd.Sub(s.reasoningStart)
+	}
+	ti, to := 0, 0
+	if s.usage != nil {
+		ti, to = s.usage.PromptTokens, s.usage.CompletionTokens
+	}
+	errStr := ""
+	if s.err != nil {
+		errStr = s.err.Error()
+	}
+	model := req.Model
+	if model == "" {
+		model = "(default)"
+	}
+	log.Printf("[llm] tag=%s model=%s type=stream dur=%.1fs ttfb=%.2fs reasoning=%.1fs text=%d tok_in=%d tok_out=%d err=%q",
+		req.Tag, model, dur.Seconds(), ttfb.Seconds(), rsn.Seconds(), s.textLen, ti, to, errStr)
 }
 
 // New 依据配置创建 Provider：有 API key 用 OpenAI，否则用 Demo（便于无 key 联调）。
@@ -212,23 +250,46 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ChatRequest) (<-cha
 	out := make(chan Event, 64)
 	go func() {
 		defer close(out)
+		st := &streamStat{start: time.Now()}
 		resp, err := p.post(ctx, body)
 		if err != nil {
+			st.err = err
+			st.log(req)
 			out <- Event{Kind: KindError, Err: err}
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			out <- Event{Kind: KindError, Err: fmt.Errorf("openai: status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))}
+			st.err = fmt.Errorf("openai: status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+			st.log(req)
+			out <- Event{Kind: KindError, Err: st.err}
 			return
 		}
-		p.parseStream(ctx, resp.Body, out)
+		p.parseStream(ctx, resp.Body, out, st, req)
+		st.log(req)
 	}()
 	return out, nil
 }
 
-func (p *OpenAIProvider) Complete(ctx context.Context, req ChatRequest) (string, *Usage, error) {
+func (p *OpenAIProvider) Complete(ctx context.Context, req ChatRequest) (content string, usage *Usage, err error) {
+	start := time.Now()
+	defer func() {
+		ti, to := 0, 0
+		if usage != nil {
+			ti, to = usage.PromptTokens, usage.CompletionTokens
+		}
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		}
+		model := req.Model
+		if model == "" {
+			model = "(default)"
+		}
+		log.Printf("[llm] tag=%s model=%s type=complete dur=%.1fs tok_in=%d tok_out=%d err=%q",
+			req.Tag, model, time.Since(start).Seconds(), ti, to, errStr)
+	}()
 	body, err := json.Marshal(p.buildOpenAIRequest(req, false))
 	if err != nil {
 		return "", nil, err
@@ -278,8 +339,8 @@ type toolCallFragment struct {
 }
 
 // parseStream 解析 OpenAI SSE。文本 delta 实时下发；tool_calls 分片聚合，
-// 在流结束时以聚合后的 KindToolCall 逐个下发，最后 KindEnd。
-func (p *OpenAIProvider) parseStream(ctx context.Context, r io.Reader, out chan<- Event) {
+// 在流结束时以聚合后的 KindToolCall 逐个下发，最后 KindEnd。同时采集耗时画像。
+func (p *OpenAIProvider) parseStream(ctx context.Context, r io.Reader, out chan<- Event, st *streamStat, req ChatRequest) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -320,17 +381,32 @@ func (p *OpenAIProvider) parseStream(ctx context.Context, r io.Reader, out chan<
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
 		}
+		now := time.Now()
+		if st.firstDataAt.IsZero() {
+			st.firstDataAt = now
+		}
 		if chunk.Usage != nil {
+			st.usage = chunk.Usage
 			out <- Event{Kind: KindUsage, Usage: chunk.Usage}
 		}
 		for _, ch := range chunk.Choices {
 			if ch.Delta.ReasoningContent != "" {
+				if st.reasoningStart.IsZero() {
+					st.reasoningStart = now
+				}
 				out <- Event{Kind: KindReasoning, Content: ch.Delta.ReasoningContent}
 			}
 			if ch.Delta.Content != "" {
+				if !st.reasoningStart.IsZero() && st.reasoningEnd.IsZero() {
+					st.reasoningEnd = now
+				}
+				st.textLen += len([]rune(ch.Delta.Content))
 				out <- Event{Kind: KindDelta, Content: ch.Delta.Content}
 			}
 			for _, tc := range ch.Delta.ToolCalls {
+				if !st.reasoningStart.IsZero() && st.reasoningEnd.IsZero() {
+					st.reasoningEnd = now
+				}
 				frag, ok := agg[tc.Index]
 				if !ok {
 					frag = &toolCallFragment{}
@@ -356,6 +432,7 @@ func (p *OpenAIProvider) parseStream(ctx context.Context, r io.Reader, out chan<
 		}
 	}
 	if err := sc.Err(); err != nil {
+		st.err = err
 		select {
 		case <-ctx.Done():
 		default:
