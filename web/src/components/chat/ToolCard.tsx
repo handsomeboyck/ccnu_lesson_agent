@@ -3,15 +3,14 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, ChevronDown, ChevronRight, Loader2, Wrench, XCircle } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import type { ServerMessageArtifact, ServerMessageToolStep } from '../../api/client'
-import ArtifactCards from './ArtifactCards'
+import type { ServerMessageToolStep } from '../../api/client'
 
 export interface ToolPartLike {
   type: string // tool-<name>
   toolCallId: string
   state?: string
   input?: unknown
-  output?: { summary?: string; artifacts?: ServerMessageArtifact[] }
+  output?: { summary?: string }
   providerExecuted?: boolean
   title?: string
 }
@@ -38,12 +37,11 @@ export default function ToolCard({ part }: { part: ToolPartLike | ServerMessageT
   const name = TOOL_LABELS[rawName] ?? rawName // 内部工具名 → 师生友好名称
   const state = isStep ? 'output-available' : ((part as ToolPartLike).state ?? 'input-available')
   const input = isStep ? undefined : (part as ToolPartLike).input
-  const output = isStep ? { summary: (part as ServerMessageToolStep).summary, artifacts: (part as ServerMessageToolStep).artifacts } : (part as ToolPartLike).output
+  const output = isStep ? { summary: (part as ServerMessageToolStep).summary } : (part as ToolPartLike).output
 
   const running = state === 'input-streaming' || state === 'input-available'
   const generating = state === 'input-streaming' // 模型正在生成调用参数
   const failed = state === 'output-error'
-  const artifacts = output?.artifacts?.filter((a) => a.id || a.data) ?? []
   const hasInput = input != null && typeof input === 'object' && Object.keys(input as object).length > 0
 
   // 长任务加载态：运行中每秒刷新经过时间
@@ -103,7 +101,6 @@ export default function ToolCard({ part }: { part: ToolPartLike | ServerMessageT
             </pre>
           )}
           {output?.summary && <div className="mb-1 text-xs text-muted-foreground">{output.summary}</div>}
-          {artifacts.length > 0 && <ArtifactCards artifacts={artifacts} compact />}
         </div>
       )}
     </div>

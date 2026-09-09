@@ -254,22 +254,23 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			// 原生工具 chunk：output-available（providerExecuted=服务端已执行）
+			// 产物不走工具卡（避免展开才能看），改为在主链路发 data-ccnu artifacts 块
 			output := map[string]any{"summary": ev.Summary}
-			if len(ev.Artifacts) > 0 {
-				output["artifacts"] = ev.Artifacts
-				// 收集持久化产物（有 id）用于写入本条 assistant 消息（历史回看）
-				for _, a := range ev.Artifacts {
-					if a.ID != "" {
-						msgArtifacts = append(msgArtifacts, skill.ArtifactView{ID: a.ID, Name: a.Name, Mime: a.Mime})
-					}
-				}
-			}
 			writeUIChunk(w, map[string]any{
 				"type":             "tool-output-available",
 				"toolCallId":       callID,
 				"output":           output,
 				"providerExecuted": true,
 			})
+			if len(ev.Artifacts) > 0 {
+				// 主链路产物卡（无需展开工具即可见；同时收集持久化供历史回看）
+				writeUIData(w, map[string]any{"type": "artifacts", "artifacts": ev.Artifacts})
+				for _, a := range ev.Artifacts {
+					if a.ID != "" {
+						msgArtifacts = append(msgArtifacts, skill.ArtifactView{ID: a.ID, Name: a.Name, Mime: a.Mime})
+					}
+				}
+			}
 			// 回填轨迹：最近一条同名未回填记录
 			for i := len(toolSteps) - 1; i >= 0; i-- {
 				if toolSteps[i].Name == ev.Tool.Name && toolSteps[i].Summary == "" {

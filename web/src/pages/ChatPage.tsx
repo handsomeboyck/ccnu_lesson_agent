@@ -101,7 +101,7 @@ function historyToMessages(msgs: ServerMessage[]): UIMessage[] {
           type: `tool-${t.name}`,
           toolCallId: t.call_id ?? `hist-${i}`,
           state: 'output-available',
-          output: { summary: t.summary, artifacts: t.artifacts ?? [] },
+          output: { summary: t.summary },
           providerExecuted: true,
         } as UIMessage['parts'][number])
       }
