@@ -240,25 +240,34 @@ export default function ChatPage() {
     if (convID) void stopChat(convID).catch(() => {})
   }, [stop])
 
-  // 刷新恢复：检测正在后台生成的会话 → 轮询到完成后自动加载最新消息
+  // 刷新恢复：检测正在后台生成的会话 → 轮询拉最新消息（出现 assistant 回复即完成）
   const [bgGenerating, setBgGenerating] = useState(false)
+  const bgDoneRef = useRef(false)
+  const bgStartRef = useRef(Date.now())
+  const streamingRefLocal = useRef(false)
+  streamingRefLocal.current = streaming
   useEffect(() => {
     if (!restoredRef.current) return
     let alive = true
+    const reload = async (id: string) => {
+      try {
+        const { messages: msgs } = await listMessages(id)
+        if (alive && msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant') {
+          convIdRef.current = id
+          setMessages(historyToMessages(msgs))
+          bgDoneRef.current = true // 已拿到完整回复，停止轮询
+        }
+      } catch {}
+    }
     const poll = async () => {
+      if (bgDoneRef.current) return
       try {
         const { generating } = await listGenerating()
-        const mine = activeId && generating.some((g) => g.conversation_id === activeId)
+        const mine = activeId ? generating.some((g) => g.conversation_id === activeId) : false
         setBgGenerating(!!mine)
-        if (mine) {
-          // 生成中：轮询消息，出现新 assistant 回复（或不再生成中）即刷新
-          const { messages: msgs } = await listMessages(activeId)
-          const hasNew = msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant'
-          if (hasNew && alive) {
-            convIdRef.current = activeId
-            setMessages(historyToMessages(msgs))
-          }
-        }
+        if (activeId && !streamingRefLocal.current) await reload(activeId) // 本地流式中不抢消息
+        // 兜底：恢复窗口 25s 后若一直无 assistant 回复则停止轮询
+        if (!mine && Date.now() - bgStartRef.current > 25000) bgDoneRef.current = true
       } catch {}
     }
     void poll()
@@ -318,18 +327,22 @@ export default function ChatPage() {
     [conversations, setMessages],
   )
 
-  // 刷新后自动恢复上次打开的会话（列表加载完成后执行一次）
+  // 刷新后自动恢复上次打开的会话（等会话列表真正加载完成再消费，避免竞态）
   useEffect(() => {
-    if (restoredRef.current || !convLoadedRef.current) return
-    restoredRef.current = true
+    if (restoredRef.current || !convLoadedRef.current || conversations.length === 0) return
     const id = lastConvRef.current
-    if (id && conversations.some((c) => c.id === id)) void openConversation(id)
+    if (id && conversations.some((c) => c.id === id)) {
+      restoredRef.current = true
+      void openConversation(id)
+    } else if (!id) {
+      restoredRef.current = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversations, openConversation])
 
-  // 记忆当前会话与输入草稿（刷新不丢）
+  // 记忆当前会话与输入草稿（刷新不丢；activeId 为空时不覆盖，避免清空上次会话记录）
   useEffect(() => {
-    localStorage.setItem('ccnu-last-conv', activeId ?? '')
+    if (activeId) localStorage.setItem('ccnu-last-conv', activeId)
   }, [activeId])
   useEffect(() => {
     localStorage.setItem('ccnu-last-draft', input)

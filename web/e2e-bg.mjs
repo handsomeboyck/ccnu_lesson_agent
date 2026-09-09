@@ -1,5 +1,5 @@
 // 端到端：生成期间客户端断开（模拟刷新/切走）→ 后台继续 → 完整落库
-const API = 'http://127.0.0.1:8080'
+const API = process.env.API || 'http://127.0.0.1:8080'
 const u = 'bg-' + Math.random().toString(36).slice(2, 8)
 await fetch(`${API}/v1/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: 'SpikeTest-123' }) }).catch(() => {})
 const lr = await fetch(`${API}/v1/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: 'SpikeTest-123' }) })
