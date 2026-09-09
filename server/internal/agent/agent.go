@@ -76,6 +76,15 @@ func SystemPrompt(mode string, skills []string) string {
 		sb.WriteString("\n\n你有以下可调用的 Skill（通过 function calling）：\n- " + strings.Join(skills, "\n- "))
 		sb.WriteString("\n当用户请求匹配某个 Skill 的职责时应调用它，拿到结果后组织成自然、友好的回复。")
 	}
+	// 文件生成规范（execute_code 写 docx/pptx/xlsx/pdf 时遵循；恒定文本利于前缀缓存）
+	sb.WriteString("\n\n## 文件生成规范（执行 execute_code 生成文件时务必遵循）\n")
+	sb.WriteString("- 气质：教案/课件/试卷默认「学术克制」——近黑白、低饱和主色（藏青/深灰）点缀，全篇配色 ≤3 色；避免 Word 默认亮蓝、彩虹表头、大面积渐变、AI 紫蓝。\n")
+	sb.WriteString("- 字体：标题黑体（微软雅黑/SimHei）+ 正文宋体（SimSun）；中文 A4；只用系统字体，中文字体需在代码里注册。\n")
+	sb.WriteString("- 层级：标题前距 > 标题后距 > 段距 > 行距；封面大留白少字；长文用 封面/目录/正文 分节，正文页码从 1；章节用标题样式（保证大纲）。\n")
+	sb.WriteString("- 表格：三线表或浅色表头（交替行用主色极浅变体），避免默认亮蓝表头。\n")
+	sb.WriteString("- 去 AI 味：不用圆角卡片墙/等分矩阵堆层级；不堆无意义徽章/分割线/装饰字；不使用 emoji。\n")
+	sb.WriteString("- xlsx：优先写 Excel 公式而非硬编码值（源数据可重算）；交付前检查无 #REF!/#DIV/0! 等错误；图表数据列不要隐藏。\n")
+	sb.WriteString("- 交付前自检：生成的文件能被正常打开（docx/pptx 分页正常、中文字体生效、无乱码）。\n")
 	return sb.String()
 }
 

@@ -102,12 +102,7 @@ func handleExec(w http.ResponseWriter, r *http.Request, runner *codex.Runner, ho
 		return
 	}
 	resp, err := runner.Run(r.Context(), job)
-	// LibreOffice 把 pptx 转同名 pdf 供前端预览（失败不阻塞，pdf 未生成则仅保留 pptx）
-	if err == nil && resp != nil && len(resp.Artifacts) > 0 {
-		convCtx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
-		resp.Artifacts = runner.ConvertOfficeToPDF(convCtx, job, resp.Artifacts)
-		cancel()
-	}
+	// 不再自动把 pptx 转 pdf（产物更干净、少一次失败拖慢；预览方案另行规划）
 	_ = os.RemoveAll(hostJobs + "/" + jobID) // 清理（产物已读入内存）
 	if err != nil {
 		writeErr(w, 500, "run: "+err.Error())
