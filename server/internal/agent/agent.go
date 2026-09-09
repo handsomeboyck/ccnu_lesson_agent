@@ -92,7 +92,7 @@ func Run(ctx context.Context, prov model.Provider, reg *skill.Registry, env *ski
 	go func() {
 		defer close(out)
 		// 尝试斜杠命令
-		if handled := runCommand(ctx, reg, env, history, out); handled {
+		if handled := runCommand(ctx, prov, reg, env, history, out); handled {
 			return
 		}
 		runLLMLoop(ctx, prov, reg, env, mode, modelName, history, out)
@@ -102,7 +102,7 @@ func Run(ctx context.Context, prov model.Provider, reg *skill.Registry, env *ski
 
 // ---- 路径 1：/命令 强制唤起 ----
 
-func runCommand(ctx context.Context, reg *skill.Registry, env *skill.Env, history []model.Msg, out chan<- Event) bool {
+func runCommand(ctx context.Context, prov model.Provider, reg *skill.Registry, env *skill.Env, history []model.Msg, out chan<- Event) bool {
 	last := ""
 	for i := len(history) - 1; i >= 0; i-- {
 		if history[i].Role == model.RoleUser {
@@ -136,15 +136,24 @@ func runCommand(ctx context.Context, reg *skill.Registry, env *skill.Env, histor
 			args = b
 		}
 	}
-	emitCommandExec(ctx, out, reg, env, s, args)
+	emitCommandExec(ctx, prov, out, reg, env, s, args)
 	return true
 }
 
 // emitCommandExec 执行命令对应 Skill，事件序列：
 // tool_call → tool_result → (ask | delta* → end)
-func emitCommandExec(ctx context.Context, out chan<- Event, reg *skill.Registry, env *skill.Env, s skill.Skill, args json.RawMessage) {
+// 文档技能走流式执行（与自动选择路径一致，体感无差异）。
+func emitCommandExec(ctx context.Context, prov model.Provider, out chan<- Event, reg *skill.Registry, env *skill.Env, s skill.Skill, args json.RawMessage) {
 	tc := &model.ToolCall{ID: "cli_" + s.Name(), Name: s.Name(), Arguments: args}
 	out <- Event{Kind: EventToolCall, Tool: tc}
+
+	// 文档技能：流式执行（复用自动选择路径）
+	if doc, ok := s.(*skill.DocSkill); ok {
+		var usage *model.Usage
+		if streamDocSkill(ctx, prov, env, out, doc, *tc, &usage) {
+			return
+		}
+	}
 
 	execCtx, cancel := context.WithTimeout(ctx, skillTimeout)
 	defer cancel()
