@@ -115,7 +115,7 @@ func (s *libraryService) upload(w http.ResponseWriter, r *http.Request) {
 
 func supportedExt(ext string) bool {
 	switch ext {
-	case "pdf", "docx", "xlsx", "txt", "md", "csv":
+	case "pdf", "docx", "xlsx", "txt", "md", "csv", "doc", "xls":
 		return true
 	}
 	return false

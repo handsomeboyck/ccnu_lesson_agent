@@ -1,5 +1,5 @@
 // Package ingest 负责用户上传文档的解析与分块。
-// 支持：PDF、DOCX（含 .doc 转换提示）、XLSX、TXT/MD。
+// 支持：PDF、DOCX、XLSX、老式 DOC/XLS（catdoc/xls2csv）、TXT/MD/CSV。
 // 产物为文本块（chunks），供资料库检索注入模型上下文。
 package ingest
 
@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -43,14 +44,38 @@ func ParseBytes(filename string, data []byte) (string, error) {
 	case "docx":
 		return parseDOCX(data)
 	case "doc":
-		return "", fmt.Errorf("暂不支持旧版 .doc 二进制格式，请在 Word 中另存为 .docx 后重试（%w 提示）", ErrUnsupported)
+		// 老式 Word 二进制（6.0/95/97-2003）：用 catdoc 提取文本
+		return execText("catdoc", nil, data)
 	case "xlsx":
 		return parseXLSX(data)
+	case "xls":
+		// 老式 Excel 二进制：用 catdoc 套件中的 xls2csv 提取
+		return execText("xls2csv", nil, data)
 	case "txt", "md", "csv", "markdown":
 		return string(data), nil
 	default:
 		return "", fmt.Errorf("不支持的文件类型 .%s（支持 pdf/docx/xlsx/txt/md）: %w", ExtOf(filename), ErrUnsupported)
 	}
+}
+
+// execText 用外部命令行工具从字节数据提取文本（catdoc/xls2csv；服务端安装 catdoc 包提供）。
+func execText(cmd string, args []string, data []byte) (string, error) {
+	f, err := os.CreateTemp("", "ccnu-ingest-*")
+	if err != nil {
+		return "", err
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return "", err
+	}
+	f.Close()
+	out, err := exec.Command(cmd, append(args, name)...).Output()
+	if err != nil {
+		return "", fmt.Errorf("%s 提取文本失败（服务端需安装 %s）：%w", cmd, cmd, err)
+	}
+	return string(out), nil
 }
 
 // ChunkSize / ChunkOverlap 分块参数（中文字符安全按 rune 切）。

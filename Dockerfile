@@ -20,7 +20,8 @@ RUN mkdir -p /out/skills && cp -r skills/* /out/skills/ 2>/dev/null || true
 
 # 阶段3：运行镜像（alpine 最小）
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 app
+# catdoc：老式 .doc（catdoc）与 .xls（xls2csv）文本提取
+RUN apk add --no-cache ca-certificates tzdata catdoc && adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=server /out/api /app/api
 COPY --from=web /app/web/dist /app/web/dist
