@@ -417,6 +417,9 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		if pendingAsk != nil {
 			b, _ := json.Marshal(map[string]any{"question": pendingAsk.Question, "options": pendingAsk.Options})
 			assistantMsg.AskJSON = string(b)
+			log.Printf("[ask] persisted ask_json len=%d", len(assistantMsg.AskJSON))
+		} else {
+			log.Printf("[ask] pendingAsk is nil, sb=%q", sb.String())
 		}
 		if usage != nil {
 			b, _ := json.Marshal(usage)
