@@ -471,8 +471,10 @@ func mergeUsage(a, b *model.Usage) *model.Usage {
 		return b
 	}
 	return &model.Usage{
-		PromptTokens:     a.PromptTokens + b.PromptTokens,
-		CompletionTokens: a.CompletionTokens + b.CompletionTokens,
-		TotalTokens:      a.TotalTokens + b.TotalTokens,
+		PromptTokens:          a.PromptTokens + b.PromptTokens,
+		CompletionTokens:      a.CompletionTokens + b.CompletionTokens,
+		TotalTokens:           a.TotalTokens + b.TotalTokens,
+		PromptCacheHitTokens:  a.PromptCacheHitTokens + b.PromptCacheHitTokens,
+		PromptCacheMissTokens: a.PromptCacheMissTokens + b.PromptCacheMissTokens,
 	}
 }
