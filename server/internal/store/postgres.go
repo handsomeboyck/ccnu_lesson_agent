@@ -470,22 +470,30 @@ func (s *pgStore) ReplaceChunks(ctx context.Context, docID string, chunks []Chun
 	return tx.Commit(ctx)
 }
 
-// SearchChunks 关键词检索：任一查询词命中即返回，按文档名+序号排序，预留 embedding 升级点。
+// SearchChunks 关键词检索：检索分块正文 + 文档标题（文件名），文件名命中优先排序。
 func (s *pgStore) SearchChunks(ctx context.Context, userID, query string, topK int) ([]ChunkHit, error) {
 	terms := splitQueryTerms(query)
 	if len(terms) == 0 || topK <= 0 {
 		return nil, nil
 	}
-	conds := make([]string, 0, len(terms))
+	conds := make([]string, 0, len(terms)*2)
 	args := []any{userID}
 	for _, t := range terms {
 		args = append(args, "%"+t+"%")
-		conds = append(conds, fmt.Sprintf("content ILIKE $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("c.content ILIKE $%d", len(args)))
+		args = append(args, "%"+t+"%")
+		conds = append(conds, fmt.Sprintf("d.filename ILIKE $%d", len(args)))
+	}
+	// 标题命中优先（relevance 粗排序）：文件名命中 > 仅正文命中
+	fnameConds := make([]string, 0, len(terms))
+	for i := range terms {
+		fnameConds = append(fnameConds, fmt.Sprintf("d.filename ILIKE $%d", 2+i*2))
 	}
 	sql := fmt.Sprintf(`SELECT c.id, c.document_id, c.seq, c.content, d.filename
 		FROM document_chunks c JOIN documents d ON d.id = c.document_id
 		WHERE d.user_id = $1 AND (%s)
-		ORDER BY d.filename, c.seq LIMIT %d`, strings.Join(conds, " OR "), topK)
+		ORDER BY (%s) DESC, d.filename, c.seq LIMIT %d`,
+		strings.Join(conds, " OR "), strings.Join(fnameConds, " OR "), topK)
 	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err

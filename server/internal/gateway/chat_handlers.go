@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/agent"
@@ -29,6 +30,65 @@ type chatService struct {
 	artifactDir string
 	model       string
 	attach      *chatAttachmentService
+
+	// 后台生成注册表：conversationID → 取消函数（生成与客户端连接解耦，断开不中断）
+	genMu     sync.Mutex
+	genCancel map[string]context.CancelFunc
+	genStart  map[string]time.Time
+}
+
+// genTimeout 单次生成的最长运行时间（后台任务兜底，防止泄漏）。
+const genTimeout = 15 * time.Minute
+
+// registerGen 登记会话生成（返回 false 表示该会话已在生成中，拒绝并发）。
+func (c *chatService) registerGen(convID string, cancel context.CancelFunc) bool {
+	c.genMu.Lock()
+	defer c.genMu.Unlock()
+	if _, ok := c.genCancel[convID]; ok {
+		return false
+	}
+	c.genCancel[convID] = cancel
+	c.genStart[convID] = time.Now()
+	return true
+}
+
+func (c *chatService) unregisterGen(convID string) {
+	c.genMu.Lock()
+	defer c.genMu.Unlock()
+	if cancel, ok := c.genCancel[convID]; ok {
+		cancel() // 兜底取消（正常结束也应释放后台 ctx）
+		delete(c.genCancel, convID)
+		delete(c.genStart, convID)
+	}
+}
+
+// handleStop 显式停止某会话的后台生成（用户点"停止"按钮）。
+func (c *chatService) handleStop(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ConversationID string `json:"conversation_id"`
+	}
+	if err := decodeJSON(r, &in); err != nil || in.ConversationID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "conversation_id required"})
+		return
+	}
+	c.genMu.Lock()
+	cancel, ok := c.genCancel[in.ConversationID]
+	c.genMu.Unlock()
+	if ok && cancel != nil {
+		cancel()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "stopped": ok})
+}
+
+// handleGenerating 返回正在后台生成的会话列表（刷新/切换后前端据此恢复）。
+func (c *chatService) handleGenerating(w http.ResponseWriter, r *http.Request) {
+	c.genMu.Lock()
+	out := make([]map[string]any, 0, len(c.genCancel))
+	for id, st := range c.genStart {
+		out = append(out, map[string]any{"conversation_id": id, "started_at": st.Format(time.RFC3339)})
+	}
+	c.genMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"generating": out})
 }
 
 type chatRequest struct {
@@ -141,8 +201,19 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		Codex:          c.codex,
 	}
 	start := time.Now()
-	evCh, err := agent.Run(r.Context(), c.provider, c.registry, env, conv.Mode, c.model, history)
+	// 生成与客户端连接解耦：用后台 ctx 驱动 Agent（断开/刷新不中断，完成后落库）。
+	// 显式停止走 /v1/chat/stop（cancel genCtx），同一会话并发生成被拒绝。
+	genCtx, genCancel := context.WithTimeout(context.Background(), genTimeout)
+	if !c.registerGen(conv.ID, genCancel) {
+		writeUIError(w, "该会话正在生成中，请稍候")
+		flusher.Flush()
+		genCancel()
+		return
+	}
+	defer c.unregisterGen(conv.ID)
+	evCh, err := agent.Run(genCtx, c.provider, c.registry, env, conv.Mode, c.model, history)
 	if err != nil {
+		c.unregisterGen(conv.ID)
 		writeUIError(w, err.Error())
 		flusher.Flush()
 		return
@@ -162,12 +233,13 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	reasoningEnded := false
 	var reasoningSb strings.Builder       // 思考链全文（持久化，历史回看）
 	errorMsg := ""
+	connected := true // 客户端是否仍在连接（断开后停止写 SSE，但生成继续消费事件）
 	const textPartID = "text"  // 单流内文本 part 的固定 id（start/delta/end 关联）
 	const reasoningPartID = "r1" // 单流内思考 part 的固定 id
 
 	// endReasoning 输出 reasoning-end（若还在流式思考中），并允许下一轮重新开始思考 part。
 	endReasoning := func() {
-		if reasoningStarted && !reasoningEnded {
+		if reasoningStarted && !reasoningEnded && connected {
 			writeUIChunk(w, map[string]any{"type": "reasoning-end", "id": reasoningPartID})
 			reasoningEnded = true
 			reasoningStarted = false // 多轮工具循环中新一轮思考可重新 start
@@ -299,16 +371,17 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		case agent.EventError:
 			errorMsg = ev.Err.Error()
 		}
-		if r.Context().Err() != nil { // 客户端断开
-			break
+		if r.Context().Err() != nil {
+			connected = false // 客户端断开：停止写 SSE，但生成继续（后台跑完并落库）
 		}
 	}
 
-	if textStarted {
+	// 断开后不再写 SSE（text-end 等收尾 chunk 只在连接存活时发送）
+	if connected && textStarted {
 		writeUIChunk(w, map[string]any{"type": "text-end", "id": textPartID})
 		flusher.Flush()
 	}
-	endReasoning() // 流结束时兜底关闭思考 part
+	endReasoning() // 流结束时兜底关闭思考 part（连接存活时）
 
 	// 记录 Agent 指标（异步写库：用独立 ctx，避免客户端断开后 insert 失败）
 	go func() {
@@ -346,9 +419,9 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 		if reasoningSb.Len() > 0 {
 			assistantMsg.Reasoning = reasoningSb.String()
 		}
-		if err := c.store.CreateMessage(r.Context(), assistantMsg); err == nil {
+		if err := c.store.CreateMessage(genCtx, assistantMsg); err == nil {
 			assistantID = assistantMsg.ID
-			_ = c.store.TouchConversation(r.Context(), conv.ID, claims.UserID, time.Now())
+			_ = c.store.TouchConversation(genCtx, conv.ID, claims.UserID, time.Now())
 		}
 	}
 

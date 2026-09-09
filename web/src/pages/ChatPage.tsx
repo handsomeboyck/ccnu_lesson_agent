@@ -24,6 +24,7 @@ import {
   Trash2,
   Pencil,
   MoreHorizontal,
+  Loader2,
   PanelLeftOpen,
   X,
   type LucideIcon,
@@ -31,10 +32,12 @@ import {
 import {
   deleteConversation,
   listConversations,
+  listGenerating,
   listMessages,
   listSkills,
   logout,
   renameConversation,
+  stopChat,
   uploadChatAttachments,
   type CommandInfo,
   type ServerMessage,
@@ -230,6 +233,52 @@ export default function ChatPage() {
   })
   const streaming = status === 'streaming' || status === 'submitted'
 
+  // 停止生成：本地停止展示 + 显式通知后端终止后台任务（生成已与连接解耦）
+  const stopGeneration = useCallback(() => {
+    const convID = convIdRef.current
+    stop()
+    if (convID) void stopChat(convID).catch(() => {})
+  }, [stop])
+
+  // 刷新恢复：检测正在后台生成的会话 → 轮询拉最新消息（出现 assistant 回复即完成）
+  const [bgGenerating, setBgGenerating] = useState(false)
+  const bgDoneRef = useRef(false)
+  const bgStartRef = useRef(Date.now())
+  const streamingRefLocal = useRef(false)
+  streamingRefLocal.current = streaming
+  useEffect(() => {
+    if (!restoredRef.current) return
+    let alive = true
+    const reload = async (id: string) => {
+      try {
+        const { messages: msgs } = await listMessages(id)
+        if (alive && msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant') {
+          convIdRef.current = id
+          setMessages(historyToMessages(msgs))
+          bgDoneRef.current = true // 已拿到完整回复，停止轮询
+        }
+      } catch {}
+    }
+    const poll = async () => {
+      if (bgDoneRef.current) return
+      try {
+        const { generating } = await listGenerating()
+        const mine = activeId ? generating.some((g) => g.conversation_id === activeId) : false
+        setBgGenerating(!!mine)
+        if (activeId && !streamingRefLocal.current) await reload(activeId) // 本地流式中不抢消息
+        // 兜底：恢复窗口 25s 后若一直无 assistant 回复则停止轮询
+        if (!mine && Date.now() - bgStartRef.current > 25000) bgDoneRef.current = true
+      } catch {}
+    }
+    void poll()
+    const iv = setInterval(poll, 2500)
+    return () => {
+      alive = false
+      clearInterval(iv)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, restoredRef])
+
   // ---- 初始化（含刷新恢复：会话 + 草稿）----
   useEffect(() => {
     const last = localStorage.getItem('ccnu-last-conv')
@@ -256,7 +305,7 @@ export default function ChatPage() {
 
   const openConversation = useCallback(
     async (id: string) => {
-      if (streaming) stop()
+      // 切换会话不再 stop()：生成在后台继续（断开/切走不中断），完成后自动落库
       stickRef.current = true // 打开会话 → 跟随到底
       setActiveId(id)
       setError('')
@@ -275,21 +324,25 @@ export default function ChatPage() {
         setError(err instanceof Error ? err.message : '加载消息失败')
       }
     },
-    [conversations, streaming, stop, setMessages],
+    [conversations, setMessages],
   )
 
-  // 刷新后自动恢复上次打开的会话（列表加载完成后执行一次）
+  // 刷新后自动恢复上次打开的会话（等会话列表真正加载完成再消费，避免竞态）
   useEffect(() => {
-    if (restoredRef.current || !convLoadedRef.current) return
-    restoredRef.current = true
+    if (restoredRef.current || !convLoadedRef.current || conversations.length === 0) return
     const id = lastConvRef.current
-    if (id && conversations.some((c) => c.id === id)) void openConversation(id)
+    if (id && conversations.some((c) => c.id === id)) {
+      restoredRef.current = true
+      void openConversation(id)
+    } else if (!id) {
+      restoredRef.current = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversations, openConversation])
 
-  // 记忆当前会话与输入草稿（刷新不丢）
+  // 记忆当前会话与输入草稿（刷新不丢；activeId 为空时不覆盖，避免清空上次会话记录）
   useEffect(() => {
-    localStorage.setItem('ccnu-last-conv', activeId ?? '')
+    if (activeId) localStorage.setItem('ccnu-last-conv', activeId)
   }, [activeId])
   useEffect(() => {
     localStorage.setItem('ccnu-last-draft', input)
@@ -305,7 +358,7 @@ export default function ChatPage() {
   }, [])
 
   const newChat = useCallback(() => {
-    if (streaming) stop()
+    if (streaming) stopGeneration()
     stickRef.current = true // 新对话 → 跟随到底
     setActiveId(null)
     setError('')
@@ -830,6 +883,12 @@ export default function ChatPage() {
           ))}
 
           {streaming && messages.length > 0 && !hasAnyPart(messages[messages.length - 1]) && <ThinkingIndicator />}
+          {bgGenerating && !streaming && (
+            <div className="mx-auto mt-3 flex w-fit items-center gap-2 rounded-full border border-ccnu-blue/30 bg-ccnu-blue/5 px-3 py-1.5 text-xs text-ccnu-blue-deep">
+              <Loader2 className="size-3.5 animate-spin" />
+              正在后台生成中…完成后将自动显示
+            </div>
+          )}
           {(chatError || error) && (
             <div className="mt-3 flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               <span>⚠ {chatError?.message ?? error}</span>
@@ -893,7 +952,7 @@ export default function ChatPage() {
                 className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none caret-ccnu-blue transition-[height] duration-150 placeholder:text-muted-foreground"
               />
               {streaming ? (
-                <Button variant="danger" size="icon" onClick={stop} title="停止生成">
+                <Button variant="danger" size="icon" onClick={stopGeneration} title="停止生成">
                   <Square className="size-3.5" />
                 </Button>
               ) : (
