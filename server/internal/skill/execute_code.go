@@ -29,9 +29,7 @@ func (s *executeCode) Description() string {
 		"表格处理、数据分析、matplotlib 绘图、生成 .docx/.pptx/.xlsx/.pdf 等文件。当用户请求超出内置解析能力（如 .doc、OCR、复杂计算/绘图）、" +
 		"或希望得到可下载的文件（如试卷 docx、课件 pptx、图表 png、表格 xlsx、报告 pdf）时调用。保存文件请写到当前工作目录（相对路径即可），" +
 		"文件名用英文/拼音避免编码问题；生成的 png/docx/pptx/xlsx/pdf/csv 等会被自动收集为用户可下载的产物。" +
-		"生成 docx 用 python-docx（中文标题黑体、正文宋体，表格用三线表或浅色表头），pptx 用 python-pptx（16:9），" +
-		"xlsx 用 openpyxl（公式优先而非硬编码值），PDF 可用 reportlab（中文用 UnicodeCIDFont('STSong-Light')）或 fpdf2。" +
-		"文件排版请遵循系统提示中的《文件生成规范》。"
+		"生成 PDF 可用 reportlab（中文用 UnicodeCIDFont('STSong-Light')）或 fpdf2；matplotlib 输出 pdf 亦可。"
 }
 func (s *executeCode) Modes() []string { return []string{} } // 全部模式
 
