@@ -78,7 +78,7 @@ func (r *Runner) Run(ctx context.Context, job *Job) (*ExecResponse, error) {
 	args := []string{
 		"run", "--rm", "--name", containerName,
 		"--network=none",
-		"--memory=512m", "--cpus=1", "--pids-limit=128",
+		"--memory=256m", "--cpus=1", "--pids-limit=128",
 		"--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
 		"--user", "1000:1000",
 		"--security-opt", "no-new-privileges",
