@@ -4,7 +4,7 @@ import { FolderOpen, Library, MessageSquare, Puzzle } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 const TABS = [
-  { to: '/', label: '对话', icon: MessageSquare, end: true },
+  { to: '/chat', label: '对话', icon: MessageSquare, end: true },
   { to: '/library', label: '资料库', icon: Library },
   { to: '/artifacts', label: '我的文件', icon: FolderOpen },
   { to: '/skills', label: '学习功能', icon: Puzzle },

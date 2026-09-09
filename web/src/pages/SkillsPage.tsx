@@ -134,7 +134,7 @@ export default function SkillsPage() {
               <Plus className="size-3.5" /> 新建技能
             </Button>
           )}
-          <Link to="/" className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
+          <Link to="/chat" className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
             <ArrowLeft className="size-3.5" /> 回对话
           </Link>
           <Button

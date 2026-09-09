@@ -21,7 +21,7 @@ export default function LoginPage() {
     try {
       const pair = await login(username.trim(), password)
       setAuth(pair)
-      navigate('/', { replace: true })
+      navigate('/chat', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败')
     } finally {

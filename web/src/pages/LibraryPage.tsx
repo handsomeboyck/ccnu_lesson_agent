@@ -117,7 +117,7 @@ export default function LibraryPage() {
             <Upload className="size-3.5" /> {uploading ? '上传中…' : '上传文件'}
           </Button>
           <Button size="sm" variant="ghost" className="[&_svg]:size-3.5">
-            <Link to="/" className="inline-flex items-center gap-1.5">
+            <Link to="/chat" className="inline-flex items-center gap-1.5">
               <ArrowLeft /> 回对话
             </Link>
           </Button>

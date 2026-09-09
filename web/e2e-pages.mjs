@@ -34,6 +34,15 @@ try {
     if (m.type() === 'error') logs.push(`[console.error] ${m.text()}`)
   })
 
+  // 0. 首页（匿名访问 / → 展示能力 + 注册/登录 CTA）
+  await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded' })
+  await new Promise((r) => setTimeout(r, 800))
+  let homeText = await page.evaluate(() => document.body.innerText)
+  console.log(
+    '首页(匿名):',
+    homeText.includes('华中师范大学 · 智能助教') && homeText.includes('它能做什么') && homeText.includes('注册使用') && homeText.includes('登录') ? '✓' : '✗',
+  )
+
   // 1. 登录页
   await page.goto('http://localhost:5173/login', { waitUntil: 'domcontentloaded' })
   await new Promise((r) => setTimeout(r, 800))

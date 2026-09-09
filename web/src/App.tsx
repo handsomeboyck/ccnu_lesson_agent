@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { me } from './api/client'
 import { useAuth } from './store/auth'
+import HomePage from './pages/HomePage'
 import ChatPage from './pages/ChatPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -50,13 +51,13 @@ function RequireAuth({ children }: { children: ReactNode }) {
 function RequireRole({ role, children }: { role: string; children: ReactNode }) {
   const user = useAuth((s) => s.user)
   if (!user) return <Navigate to="/login" replace />
-  if (user.role !== role) return <Navigate to="/" replace />
+  if (user.role !== role) return <Navigate to="/chat" replace />
   return children
 }
 
 function GuestOnly({ children }: { children: ReactNode }) {
   const user = useAuth((s) => s.user)
-  if (user) return <Navigate to="/" replace />
+  if (user) return <Navigate to="/chat" replace />
   return children
 }
 
@@ -82,6 +83,10 @@ export default function App() {
         />
         <Route
           path="/"
+          element={<HomePage />}
+        />
+        <Route
+          path="/chat"
           element={
             <RequireAuth>
               <ChatPage />

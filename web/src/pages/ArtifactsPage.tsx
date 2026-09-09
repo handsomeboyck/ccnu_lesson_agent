@@ -191,7 +191,7 @@ export default function ArtifactsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+          <Link to="/chat" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
             <ArrowLeft className="size-3.5" /> 回对话
           </Link>
           <Button
@@ -249,7 +249,7 @@ export default function ArtifactsPage() {
           <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">
             在对话里让 AI 画图、处理数据，或生成 Word / PPT / PDF 试卷和课件，文件会自动出现在这里。
           </p>
-          <Link to="/" className={buttonVariants({ variant: 'default', size: 'sm', className: 'mt-4' })}>
+          <Link to="/chat" className={buttonVariants({ variant: 'default', size: 'sm', className: 'mt-4' })}>
             去对话生成
           </Link>
         </div>

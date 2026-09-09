@@ -33,7 +33,7 @@ export default function RegisterPage() {
       // 注册成功后自动登录
       const pair = await login(username.trim(), password)
       setAuth(pair)
-      navigate('/', { replace: true })
+      navigate('/chat', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : '注册失败')
     } finally {
