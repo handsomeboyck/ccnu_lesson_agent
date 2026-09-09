@@ -1,7 +1,7 @@
 # 教育版 Web 智能体（AI Tutor）整体架构
 
-> 版本：v1.0（生产版 —— Skill v2 = Claude 风格 SKILL.md + 文件知识库 + Python 代码沙箱 execute_code 产物体系 + 消息级附件多轮记忆 + 华师主题 UI + 监控/审计）
-> 定位：面向教育场景的 ChatGPT 风格 Web 智能体。前端参考 GPT 交互形态、浅色学术 UI（华中师范大学品牌：华师蓝主色 + 宋体标题 + 金辅点缀），服务端为单一 Agent 内核 + 可插拔 Skill 编排，支持 **自然对话自动触发** 与 **`/命令` 主动唤起** Skill，具备 **ask_user 向学生提问**能力，可上传 pdf/docx/xlsx 作为资料库供对话检索引用，支持**消息级多文件附件**（上传即读、同会话多轮追问免重传），可通过 **Python 代码沙箱（execute_code）** 完成解析/计算/绘图并产出 docx/pptx/xlsx/pdf/png 等持久化产物；提供**监控中心**（仅 admin：Agent 指标、宿主/容器资源、Postgres 状态、全站对话审计与导出）；OpenAI 兼容模型接入。
+> 版本：v1.2（生产版 —— Skill v2 = Claude 风格 SKILL.md + 文件知识库 + Python 代码沙箱 execute_code 产物体系 + 消息级附件多轮记忆 + 华师主题 UI + 移动端适配 + 公开首页 + 数学公式渲染 + 监控/审计 + LLM 缓存监控）
+> 定位：面向教育场景的 ChatGPT 风格 Web 智能体。前端参考 GPT 交互形态、浅色学术 UI（华中师范大学品牌：华师蓝主色 + 宋体标题 + 金辅点缀）；`/` 为**公开首页**（能力介绍 + 注册引导），登录后进 `/chat` 对话；支持**移动端底部 Tab 导航**与响应式布局。服务端为单一 Agent 内核 + 可插拔 Skill 编排，支持 **自然对话自动触发** 与 **`/命令` 主动唤起** Skill（文档型技能均**流式执行**、无需展开工具卡即可见产物），具备 **ask_user 向学生提问**能力，可上传 pdf/docx/xlsx（含老式 .doc/.xls）作为资料库供对话检索引用，支持**消息级多文件附件**（上传即读、同会话多轮追问免重传、刷新自动恢复会话与草稿），可通过 **Python 代码沙箱（execute_code，256m 限额）** 完成解析/计算/绘图并产出 docx/pptx/xlsx/pdf/png 等持久化产物（**中文文件名可用**）；Markdown 中的 LaTeX 公式（$...$/$$...$$）由 **KaTeX** 渲染；提供**监控中心**（仅 admin：Agent 指标、LLM 缓存命中率、宿主/容器资源、Postgres 状态、全站对话审计与导出）；OpenAI 兼容模型接入。
 
 ---
 
@@ -28,10 +28,10 @@
 
 | 层 | 选型 | 说明 |
 |---|---|---|
-| 前端 | React 19 + Vite 8 + TypeScript | GPT 风格 SPA；`web/`；react-markdown 渲染、Zustand 状态、React Router |
+| 前端 | React 19 + Vite 8 + TypeScript | SPA（`web/`）；react-markdown + remark-gfm + **KaTeX（数学公式）** 渲染、Zustand 状态、React Router；移动端底部 Tab + 响应式 |
 | 后端 | Go 1.27（`net/http` 1.22+ 方法路由），stdlib 为主 + pgx 驱动 | Agent 服务端；`server/` |
 | 实时通信 | SSE（Server-Sent Events） | 事件协议见 §6.2 |
-| LLM 接入 | OpenAI Chat Completions + function calling | `OPENAI_*` 三件套配置，兼容 DeepSeek/OpenAI/通义等；本地当前启用 DeepSeek `deepseek-chat`；无 key 时 Demo 模式可无网联调 |
+| LLM 接入 | OpenAI Chat Completions + function calling | `OPENAI_*` 三件套配置，兼容 DeepSeek/OpenAI/通义等；本地当前启用 DeepSeek `deepseek-v4-flash` + `reasoning_effort=medium`；无 key 时 Demo 模式可无网联调 |
 | Embedding | （规划）OpenAI Embedding API 1536 维 | 供 M2 RAG 使用 |
 | 数据库 | PostgreSQL（pgx/v5） | 生产权威数据源；本地未配 `DATABASE_URL` 时回退内存 store（仅开发演示） |
 | 配置 | `.env` 文件（服务端启动自动加载，系统环境变量优先） | 模板见 `server/.env.example` |
@@ -67,8 +67,9 @@
 │          ▼                              ▼                     │
 │  ┌────────────────┐            ┌────────────────────┐         │
 │  │ Skill Registry │            │ Model Provider     │         │
-│  │ 4 内置 Skill   │            │ OpenAI 兼容 / Demo │         │
-│  │ + CommandProvider            │ Chat(stream+tools)│         │
+│  │ 文档型 SKILL.md │            │ OpenAI 兼容 / Demo │         │
+│  │ + 原语(ask_user │            │ Chat(stream+tools)│         │
+│  │ /retrieve/exec)│            │ 技能内层流式执行    │         │
 │  └────────┬───────┘            └─────────┬──────────┘         │
 └───────────┼───────────────────────────────┼───────────────────┘
             ▼                               ▼
