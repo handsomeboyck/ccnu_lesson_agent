@@ -24,7 +24,6 @@ import {
   Trash2,
   Pencil,
   MoreHorizontal,
-  Loader2,
   PanelLeftOpen,
   X,
   type LucideIcon,
@@ -32,7 +31,6 @@ import {
 import {
   deleteConversation,
   listConversations,
-  listGenerating,
   listMessages,
   listSkills,
   logout,
@@ -240,48 +238,74 @@ export default function ChatPage() {
     if (convID) void stopChat(convID).catch(() => {})
   }, [stop])
 
-  // 刷新恢复：检测正在后台生成的会话 → 生成完成后一次性加载完整回复（不抢本地 live 视图）
-  const [bgGenerating, setBgGenerating] = useState(false)
-  const bgDoneRef = useRef(false)
-  const bgPollEnabled = useRef(false)      // 仅在检测到后台生成时开启轮询（正常对话不碰）
-  const streamingRefLocal = useRef(false)
-  const streamEndedRef = useRef(0)         // 流式结束时刻（冷却期，防止冲刷 live 视图）
-  streamingRefLocal.current = streaming
+  // ---- Resume Streams：会话的 streamId 映射（断点续传不需要轮询）----
+  const streamMapRef = useRef<Record<string, string>>({}) // convId → streamId
+  // meta chunk 到达时捕获 streamId
   useEffect(() => {
-    if (!streaming) streamEndedRef.current = Date.now()
-  }, [streaming])
-  useEffect(() => {
-    if (!bgPollEnabled.current) return
-    let alive = true
-    const reloadOnce = async (id: string) => {
-      try {
-        const { messages: msgs } = await listMessages(id)
-        if (alive && msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant') {
-          convIdRef.current = id
-          setMessages(historyToMessages(msgs))
-          bgDoneRef.current = true // 已拿到完整回复，停止轮询
+    for (let i = messages.length - 1; i >= 0; i--) {
+      for (const p of messages[i].parts ?? []) {
+        if (p.type === 'data-ccnu' && (p as any).data?.type === 'meta' && (p as any).data.streamId) {
+          const sid = (p as any).data.streamId as string
+          if (convIdRef.current) streamMapRef.current[convIdRef.current] = sid
+          return
         }
-      } catch {}
+      }
     }
-    const poll = async () => {
-      if (bgDoneRef.current) { bgPollEnabled.current = false; return }
-      try {
-        const { generating } = await listGenerating()
-        const mine = activeId ? generating.some((g) => g.conversation_id === activeId) : false
-        setBgGenerating(!!mine)
-        // 流式刚结束 3s 内不轮询（冷却期，保护 live 视图中的 AskCard / 工具卡）
-        if (mine && activeId && !streamingRefLocal.current && Date.now() - streamEndedRef.current > 3000) {
-          await reloadOnce(activeId)
-        } else if (!mine && bgDoneRef.current) {
-          bgPollEnabled.current = false
+  }, [messages])
+
+  // resumeStream: 从后台流重放/续传，结果直接 setMessages
+  const resumeStream = useCallback(async (convId: string, streamId: string) => {
+    try {
+      const token = useAuth.getState().accessToken ?? ''
+      const r = await fetch(`/v1/chat/stream/${streamId}`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!r.ok) return
+      const rd = r.body?.getReader(); if (!rd) return
+      const dc = new TextDecoder(); let buf = ''
+      // 收集工具调用轨迹
+      const toolSteps: any[] = []
+      let textContent = ''
+      let reasoningText = ''
+      let artifacts: any[] = []
+      let finished = false
+      while (!finished) {
+        const { done, value } = await rd.read(); if (done) break
+        buf += dc.decode(value, { stream: true })
+        const ls = buf.split('\n'); buf = ls.pop() ?? ''
+        for (const l of ls) {
+          if (!l.startsWith('data: ')) continue
+          const d = l.slice(6).trim(); if (d === '[DONE]') { finished = true; break }
+          let c: any; try { c = JSON.parse(d) } catch { continue }
+          const uid = c.type
+          if (uid === 'text-delta') textContent += c.delta ?? ''
+          else if (uid === 'reasoning-delta') reasoningText += c.delta ?? ''
+          else if (uid === 'tool-input-start' || uid === 'tool-input-delta' || uid === 'tool-output-available' || uid === 'tool-input-available') {
+            // 收集工具卡片
+            const existing = toolSteps.find(t => t.name === c.toolName)
+            if (existing) {
+              if (uid === 'tool-output-available') { existing.summary = c.output?.summary; existing.artifacts = c.output?.artifacts ?? []; existing.done = true }
+            } else if (uid.startsWith('tool-input')) {
+              toolSteps.push({ name: c.toolName, call_id: c.toolCallId, summary: '', artifacts: [], done: false })
+            }
+          }
+          else if (c.type === 'data-ccnu' && c.data?.type === 'artifacts' && c.data.artifacts) {
+            artifacts.push(...c.data.artifacts)
+          }
         }
-      } catch {}
-    }
-    void poll()
-    const iv = setInterval(poll, 2500)
-    return () => { alive = false; clearInterval(iv) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId])
+      }
+      // 用解析结果重建 UIMessage 列表（替换本地消息）
+      if (textContent) {
+        const parts: any[] = []
+        if (reasoningText) parts.push({ type: 'reasoning', text: reasoningText, state: 'done' })
+        for (const t of toolSteps) {
+          parts.push({ type: `tool-${t.name}`, toolCallId: t.call_id ?? '', state: 'output-available', output: { summary: t.summary, artifacts: t.artifacts ?? [] }, providerExecuted: true })
+        }
+        if (artifacts.length > 0) parts.push({ type: 'data-ccnu', data: { type: 'artifacts', artifacts } })
+        parts.push({ type: 'text', text: textContent })
+        convIdRef.current = convId
+        setMessages([{ id: 'resume-' + streamId, role: 'assistant', parts } as any])
+      }
+    } catch {}
+  }, [setMessages])
 
   // ---- 初始化（含刷新恢复：会话 + 草稿）----
   useEffect(() => {
@@ -321,13 +345,9 @@ export default function ChatPage() {
         convIdRef.current = id
         attachRef.current = []
         setMessages(historyToMessages(msgs))
-        // 若正在后台生成：开启轮询（切换回来 / 刷新恢复场景）
-        void listGenerating().then(({ generating }) => {
-          if (generating.some((g) => g.conversation_id === id)) {
-            bgDoneRef.current = false // 重置（可能上一轮已完成）
-            bgPollEnabled.current = true
-          }
-        })
+        // Resume Streams：若该会话有活跃流，后台重放续传（替代轮询）
+        const sid = streamMapRef.current[id]
+        if (sid) void resumeStream(id, sid)
         requestAnimationFrame(() => {
           const el = scrollRef.current
           if (el) el.scrollTop = el.scrollHeight
@@ -336,7 +356,7 @@ export default function ChatPage() {
         setError(err instanceof Error ? err.message : '加载消息失败')
       }
     },
-    [conversations, streaming, stop, setMessages],
+    [conversations, streaming, stop, setMessages, resumeStream],
   )
 
   // 刷新后自动恢复上次打开的会话（等会话列表真正加载完成再消费，避免竞态）
@@ -346,10 +366,6 @@ export default function ChatPage() {
     if (id && conversations.some((c) => c.id === id)) {
       restoredRef.current = true
       void openConversation(id)
-      // 检测是否后台生成中（刷新恢复场景）：有则开启轮询
-      void listGenerating().then(({ generating }) => {
-        if (generating.some((g) => g.conversation_id === id)) bgPollEnabled.current = true
-      })
     } else if (!id) {
       restoredRef.current = true
     }
@@ -899,12 +915,6 @@ export default function ChatPage() {
           ))}
 
           {streaming && messages.length > 0 && !hasAnyPart(messages[messages.length - 1]) && <ThinkingIndicator />}
-          {bgGenerating && !streaming && (
-            <div className="mx-auto mt-3 flex w-fit items-center gap-2 rounded-full border border-ccnu-blue/30 bg-ccnu-blue/5 px-3 py-1.5 text-xs text-ccnu-blue-deep">
-              <Loader2 className="size-3.5 animate-spin" />
-              正在后台生成中…完成后将自动显示
-            </div>
-          )}
           {(chatError || error) && (
             <div className="mt-3 flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               <span>⚠ {chatError?.message ?? error}</span>
