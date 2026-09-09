@@ -240,16 +240,16 @@ export default function ChatPage() {
     if (convID) void stopChat(convID).catch(() => {})
   }, [stop])
 
-  // 刷新恢复：检测正在后台生成的会话 → 轮询拉最新消息（出现 assistant 回复即完成）
+  // 刷新恢复：检测正在后台生成的会话 → 生成完成后一次性加载完整回复（不抢本地 live 视图）
   const [bgGenerating, setBgGenerating] = useState(false)
   const bgDoneRef = useRef(false)
-  const bgStartRef = useRef(Date.now())
+  const bgWasGenRef = useRef(false)       // 上一 tick 是否在生成中（true→false = 刚完成）
   const streamingRefLocal = useRef(false)
   streamingRefLocal.current = streaming
   useEffect(() => {
     if (!restoredRef.current) return
     let alive = true
-    const reload = async (id: string) => {
+    const reloadOnce = async (id: string) => {
       try {
         const { messages: msgs } = await listMessages(id)
         if (alive && msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant') {
@@ -265,17 +265,20 @@ export default function ChatPage() {
         const { generating } = await listGenerating()
         const mine = activeId ? generating.some((g) => g.conversation_id === activeId) : false
         setBgGenerating(!!mine)
-        if (activeId && !streamingRefLocal.current) await reload(activeId) // 本地流式中不抢消息
-        // 兜底：恢复窗口 25s 后若一直无 assistant 回复则停止轮询
-        if (!mine && Date.now() - bgStartRef.current > 25000) bgDoneRef.current = true
+        if (mine) {
+          bgWasGenRef.current = true
+          // 生成中且本地不在流式（避免抢 live 视图）→ 拉一次最新进度
+          if (activeId && !streamingRefLocal.current) await reloadOnce(activeId)
+        } else if (bgWasGenRef.current && activeId && !streamingRefLocal.current) {
+          // 刚完成：一次性收尾加载（最后一次 reload，之后停止轮询）
+          await reloadOnce(activeId)
+          bgDoneRef.current = true
+        }
       } catch {}
     }
     void poll()
     const iv = setInterval(poll, 2500)
-    return () => {
-      alive = false
-      clearInterval(iv)
-    }
+    return () => { alive = false; clearInterval(iv) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, restoredRef])
 
@@ -305,7 +308,8 @@ export default function ChatPage() {
 
   const openConversation = useCallback(
     async (id: string) => {
-      // 切换会话不再 stop()：生成在后台继续（断开/切走不中断），完成后自动落库
+      // 终止本地流展示（后端 genCtx 不受影响，继续后台生成并落库）
+      if (streaming) stop()
       stickRef.current = true // 打开会话 → 跟随到底
       setActiveId(id)
       setError('')
@@ -324,7 +328,7 @@ export default function ChatPage() {
         setError(err instanceof Error ? err.message : '加载消息失败')
       }
     },
-    [conversations, setMessages],
+    [conversations, streaming, stop, setMessages],
   )
 
   // 刷新后自动恢复上次打开的会话（等会话列表真正加载完成再消费，避免竞态）
