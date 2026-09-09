@@ -198,11 +198,21 @@ func (d *DocSkill) Modes() []string { return d.Meta.Modes }
 // Parameters 供 function calling 注册。
 func (d *DocSkill) Parameters() map[string]any { return d.ToolParameters() }
 
+// ExecutorSystem 返回技能执行引擎的系统指令（SKILL.md 全文），供流式执行与 Execute 共用。
+func (d *DocSkill) ExecutorSystem() string {
+	return "你是教育版智能体的技能执行引擎。请严格按下面的技能文档逐步执行。\n\n" + d.Document()
+}
+
+// ResolveRequest 从工具调用参数解析用户请求文本。
+func (d *DocSkill) ResolveRequest(args json.RawMessage) string {
+	return d.resolveArgs(args)
+}
+
 // Execute 文档型技能：把 SKILL.md 完整文档作为系统指令、用户请求作为输入，
 // 调用模型按文档引导完成并返回结果（skill 行为完全由 SKILL.md 定义，无需 Go 业务代码）。
 func (d *DocSkill) Execute(ctx context.Context, env *Env, args json.RawMessage) (*Result, error) {
 	req := d.resolveArgs(args)
-	sys := "你是教育版智能体的技能执行引擎。请严格按下面的技能文档逐步执行。\n\n" + d.Document()
+	sys := d.ExecutorSystem()
 	if req == "" {
 		req = "请按技能说明执行。"
 	}

@@ -240,6 +240,17 @@ func runLLMLoop(ctx context.Context, prov model.Provider, reg *skill.Registry, e
 
 		// 逐个执行；若某 Skill 返回 Ask（如 ask_user），暂停等学生回答，结束本轮。
 		for _, tc := range calls {
+			// 文档型技能（单调用）：流式执行——技能输出即最终答案，直接推给前端，
+			// 结束循环，跳过 round-2 重复生成（体感首字提前 + 省 token）。
+			if len(calls) == 1 {
+				if s, ok := reg.Get(tc.Name); ok {
+					if doc, isDoc := s.(*skill.DocSkill); isDoc {
+						if streamDocSkill(ctx, prov, env, out, doc, tc, &total) {
+							return
+						}
+					}
+				}
+			}
 			res, execErr := execSkill(ctx, reg, env, tc)
 			msgs = append(msgs, model.Msg{Role: model.RoleTool, ToolCallID: tc.ID, Content: toolContent(res, execErr, tc.Name)})
 			ev := Event{Kind: EventToolResult, Tool: &tc, Summary: summarizeOf(res, execErr, tc.Name)}
@@ -267,6 +278,129 @@ func execSkill(ctx context.Context, reg *skill.Registry, env *skill.Env, tc mode
 	execCtx, cancel := context.WithTimeout(ctx, skillTimeout)
 	defer cancel()
 	return reg.Execute(execCtx, env, tc.Name, tc.Arguments)
+}
+
+// isTransientLLMErr 判断是否为可重试的瞬时模型错误（限流/5xx/超时）。
+func isTransientLLMErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "429") ||
+		strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, " 500") ||
+		strings.Contains(msg, "502") ||
+		strings.Contains(msg, "503") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "timed out") ||
+		strings.Contains(msg, "temporarily")
+}
+
+// streamDocSkill 文档型技能流式执行：SKILL.md 作系统指令再发起一次流式模型调用，
+// 文本 delta 直接转发为最终回答（EventDelta → text-delta），收集完整内容；
+// 若首段以 ASK_QUESTION 开头则抑制转发、走提问卡路径。
+// 返回 true 表示本轮已处理完毕（最终回答 / 提问卡 / 错误），调用方应结束请求。
+func streamDocSkill(ctx context.Context, prov model.Provider, env *skill.Env, out chan<- Event,
+	doc *skill.DocSkill, tc model.ToolCall, total **model.Usage) bool {
+
+	req := doc.ResolveRequest(tc.Arguments)
+	if req == "" {
+		req = "请按技能说明执行。"
+	}
+	streamReq := model.ChatRequest{
+		Messages: []model.Msg{
+			{Role: model.RoleSystem, Content: doc.ExecutorSystem()},
+			{Role: model.RoleUser, Content: req},
+		},
+		Model: env.ModelName,
+		Tag:   "skill-stream:" + doc.Name(),
+	}
+
+	// 瞬时错误（连接/HTTP 阶段）重试一次
+	evCh, _ := prov.ChatStream(ctx, streamReq)
+	firstEv, open := <-evCh
+	if open && firstEv.Kind == model.KindError && isTransientLLMErr(firstEv.Err) {
+		evCh2, _ := prov.ChatStream(ctx, streamReq)
+		firstEv, open = <-evCh2
+		evCh = evCh2
+	}
+	if !open {
+		out <- Event{Kind: EventError, Err: fmt.Errorf("skill %q 流式执行无响应", doc.Name())}
+		return true
+	}
+	if firstEv.Kind == model.KindError {
+		out <- Event{Kind: EventError, Err: firstEv.Err}
+		return true
+	}
+
+	var sb strings.Builder
+	askChecked := false // 首段文本是否已判断 ASK_QUESTION
+	suppressAsk := false
+
+	process := func(ev model.Event) bool {
+		switch ev.Kind {
+		case model.KindDelta:
+			if !suppressAsk {
+				sb.WriteString(ev.Content)
+				if !askChecked {
+					if strings.HasPrefix(strings.TrimSpace(sb.String()), "ASK_QUESTION") {
+						suppressAsk = true // 提问卡路径：不再转发文本
+					} else {
+						out <- Event{Kind: EventDelta, Content: ev.Content}
+					}
+					askChecked = true
+				} else {
+					out <- Event{Kind: EventDelta, Content: ev.Content}
+				}
+			} else {
+				sb.WriteString(ev.Content)
+			}
+		case model.KindUsage:
+			if ev.Usage != nil {
+				*total = mergeUsage(*total, ev.Usage)
+			}
+		case model.KindError:
+			out <- Event{Kind: EventError, Err: ev.Err}
+			return false
+		}
+		return true
+	}
+
+	ok := process(firstEv)
+	for ok {
+		ev, open := <-evCh
+		if !open {
+			break
+		}
+		if !process(ev) {
+			return true
+		}
+	}
+
+	content := strings.TrimSpace(sb.String())
+	if suppressAsk && strings.HasPrefix(content, "ASK_QUESTION") {
+		// 与 doc.Execute 相同的提问解析
+		lines := strings.Split(content, "\n")
+		q := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(lines[0], "ASK_QUESTION:"), "："))
+		var opts []string
+		for _, ln := range lines[1:] {
+			ln = strings.TrimSpace(ln)
+			if strings.HasPrefix(ln, "ASK_OPTION:") || strings.HasPrefix(ln, "ASK_OPTION：") {
+				opts = append(opts, strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(ln, "ASK_OPTION:"), "：")))
+			}
+		}
+		if q != "" {
+			out <- Event{Kind: EventAsk, Question: q, Options: opts}
+			out <- Event{Kind: EventEnd, Usage: *total}
+			return true
+		}
+	}
+
+	// 技能输出即最终回答：工具卡完成 + 结束（跳过 round-2 重复生成）
+	summary := fmt.Sprintf("技能「%s」执行完成", doc.Name())
+	out <- Event{Kind: EventToolResult, Tool: &tc, Summary: summary}
+	out <- Event{Kind: EventEnd, Usage: *total}
+	return true
 }
 
 // toolContent 回填给模型的纯文本（产物数据不进模型上下文）。
