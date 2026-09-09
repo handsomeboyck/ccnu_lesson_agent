@@ -863,6 +863,29 @@ textarea {
   font-size: 15px;
   line-height: 1.7;
 }
+
+/* ---- KaTeX 数学公式（教学场景）---- */
+.markdown-body .katex {
+  font-size: 1.08em;
+}
+.markdown-body .katex-display {
+  margin: 0.6em 0;
+  padding: 0.35em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.markdown-body .katex-display > .katex {
+  display: block;
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  .markdown-body .katex-display {
+    padding: 0.25em 0.5em;
+    background: #fafbfd;
+    border-radius: 6px;
+  }
+}
 .markdown-body p {
   margin: 0.4em 0;
 }
