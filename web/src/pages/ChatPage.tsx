@@ -797,14 +797,19 @@ export default function ChatPage() {
                   多轮对话、实时回复、输入 <code>/</code> 唤起快捷功能、生成可下载的学习文件
                 </p>
               </div>
-              {/* 灵犀式：输入框上方一排快捷功能胶囊（非大卡片） */}
+              {/* 灵犀式：输入框上方一排快捷功能胶囊（点击填入输入框，可修改后发送） */}
+              <div className="mb-2 text-xs text-muted-foreground">试一试，点击填入输入框：</div>
               <div className="flex flex-wrap items-center justify-center gap-2">
                 {WELCOME_GUIDES.map((g) => (
                   <button
                     key={g.title}
-                    title={g.desc}
+                    title={`${g.desc}（点击填入输入框，可修改后发送）`}
                     className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E6EB] bg-white px-3 py-1.5 text-xs text-[#333] transition-colors hover:border-ccnu-blue/50 hover:text-ccnu-blue"
-                    onClick={() => void handleSend(g.prompt)}
+                    onClick={() => {
+                      setInput(g.prompt)
+                      setSlashMenu(false)
+                      taRef.current?.focus()
+                    }}
                   >
                     <g.icon className="size-3.5" />
                     {g.title}
