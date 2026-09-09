@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/extrame/xls"
@@ -45,8 +47,12 @@ func ParseBytes(filename string, data []byte) (string, error) {
 	case "docx":
 		return parseDOCX(data)
 	case "doc":
-		// 老式 Word 二进制（6.0/95/97-2003）：用 antiword 提取文本（alpine 包）
-		return execText("antiword", nil, data, ".doc")
+		// 老式 Word 二进制（6.0/95/97-2003）：antiword 提取；RTF 伪装 .doc 走 RTF 兜底
+		text, err := execText("antiword", nil, data, ".doc")
+		if err != nil && looksLikeRTF(data) {
+			return parseRTF(data), nil
+		}
+		return text, err
 	case "xlsx":
 		return parseXLSX(data)
 	case "xls":
@@ -180,6 +186,35 @@ func parseDOCX(data []byte) (string, error) {
 		return sb.String(), nil
 	}
 	return "", errors.New("docx: word/document.xml not found")
+}
+
+// ---- RTF 兜底（部分"老 .doc"实为 RTF）----
+
+var (
+	rtfParRe  = regexp.MustCompile(`\\(?:par|line|pard|sect)(?:-?\d+)? ?`)
+	rtfHexRe  = regexp.MustCompile(`\\'([0-9a-fA-F]{2})`)
+	rtfSkipRe = regexp.MustCompile(`\\[a-zA-Z]+-?\d* ?`)
+)
+
+func looksLikeRTF(data []byte) bool {
+	t := bytes.TrimLeft(bytes.TrimSpace(data), "\xef\xbb\xbf")
+	return bytes.HasPrefix(t, []byte("{\\rtf"))
+}
+
+// parseRTF 简化 RTF 文本提取（够用于检索；\uN 中文需真正解析，这里尽力保留可读文本）。
+func parseRTF(data []byte) string {
+	s := string(data)
+	s = rtfParRe.ReplaceAllString(s, "\n")
+	s = rtfHexRe.ReplaceAllStringFunc(s, func(m string) string {
+		if b, err := strconv.ParseUint(m[2:4], 16, 8); err == nil {
+			return string([]byte{byte(b)})
+		}
+		return ""
+	})
+	s = rtfSkipRe.ReplaceAllString(s, " ")
+	s = strings.ReplaceAll(s, "{", " ")
+	s = strings.ReplaceAll(s, "}", " ")
+	return strings.TrimSpace(s)
 }
 
 // ---- XLSX（excelize）----
