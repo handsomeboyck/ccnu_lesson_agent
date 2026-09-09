@@ -31,6 +31,17 @@ try {
   const logs = []
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`))
 
+  // 匿名移动端访问首页：排版不裂、CTA 可见
+  await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded' })
+  await new Promise((r) => setTimeout(r, 1000))
+  const homeText = await page.evaluate(() => document.body.innerText)
+  const noHOverflowHome = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
+  console.log(
+    '移动端首页(匿名):',
+    homeText.includes('华中师范大学 · 智能助教') && homeText.includes('注册使用') && homeText.includes('它能做什么') ? '✓' : '✗',
+    '| 无横向溢出:', (await noHOverflowHome()) ? '✓' : '✗',
+  )
+
   await page.goto('http://localhost:5173/login', { waitUntil: 'domcontentloaded' })
   await page.evaluate(
     ({ t, u }) => {

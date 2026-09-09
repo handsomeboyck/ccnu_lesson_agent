@@ -107,6 +107,9 @@ export default function HomePage() {
             </div>
           ))}
         </div>
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          上传的资料仅用于你自己的会话，请勿上传敏感个人信息。
+        </p>
       </section>
 
       {/* 三步上手 */}
@@ -126,6 +129,20 @@ export default function HomePage() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* 收尾 CTA */}
+      <section className="mx-auto max-w-5xl px-6 py-14 text-center">
+        <h2 className="font-display text-lg font-bold">现在开始使用</h2>
+        <p className="mt-2 text-sm text-muted-foreground">注册即可开始提问、上传资料、生成文件</p>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <Link to="/register" className={buttonVariants({ size: 'lg' })}>
+            注册使用 <ArrowRight className="size-4" />
+          </Link>
+          <Link to="/login" className={buttonVariants({ variant: 'outline', size: 'lg' })}>
+            已有账号，登录
+          </Link>
         </div>
       </section>
 
