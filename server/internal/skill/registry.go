@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
@@ -154,6 +155,7 @@ func (r *Registry) All() []Skill {
 		}
 		out = append(out, s)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
 	return out
 }
 
@@ -189,6 +191,7 @@ func (r *Registry) Commands() []CommandInfo {
 			Parameters:  s.Parameters(),
 		})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Command < out[j].Command })
 	return out
 }
 
@@ -207,6 +210,8 @@ func enabledFor(s Skill, mode string) bool {
 }
 
 // ToolsForMode 返回某模式可用 Skill 的 tool 定义（供 function calling；禁用技能不暴露）。
+// 注意：必须按 Name 排序输出——Go map 迭代顺序随机，若顺序不定则 tools JSON 每次不同，
+// 直接导致 DeepSeek 前缀缓存命中率崩塌（实测路由轮仅 24%）。
 func (r *Registry) ToolsForMode(mode string) []model.Tool {
 	var tools []model.Tool
 	for _, s := range r.byName {
@@ -222,6 +227,7 @@ func (r *Registry) ToolsForMode(mode string) []model.Tool {
 			},
 		})
 	}
+	sort.Slice(tools, func(i, j int) bool { return tools[i].Function.Name < tools[j].Function.Name })
 	return tools
 }
 
