@@ -760,7 +760,9 @@ export default function ChatPage() {
         <div
           ref={scrollRef}
           onScroll={onMessagesScroll}
-          className={`relative min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 ${dragActive ? 'bg-ccnu-blue/5' : ''}`}
+          className={`relative min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 ${dragActive ? 'bg-ccnu-blue/5' : ''} ${
+            messages.length === 0 && !streaming ? 'flex items-center justify-center' : ''
+          }`}
           onDragOver={(e) => {
             e.preventDefault()
             if (!dragActive) setDragActive(true)
@@ -784,7 +786,7 @@ export default function ChatPage() {
           )}
 
           {messages.length === 0 && !streaming && (
-            <div className="mx-auto mt-8 max-w-2xl">
+            <div className="mx-auto w-full max-w-2xl">
               <div className="mb-5 text-center">
                 <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-ccnu-blue/10 font-display text-xl font-bold text-ccnu-blue">
                   华
