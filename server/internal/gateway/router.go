@@ -67,6 +67,8 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	mux.HandleFunc("POST /v1/chat", authH.requireAuth(chatH.stream))
 	// 流重放：断线后从指定 seq 续传（需登录）
 	mux.HandleFunc("GET /v1/chat/stream/{streamId}", authH.requireAuth(chatH.handleStreamReplay))
+	// 官方 Resume Streams 重连：无流 204，有流回放（需登录）
+	mux.HandleFunc("GET /v1/chat/resume/{conversationId}", authH.requireAuth(chatH.handleResume))
 	// 显式停止后台生成（需登录）
 	mux.HandleFunc("POST /v1/chat/stop", authH.requireAuth(chatH.handleStop))
 	// 正在后台生成的会话列表（刷新恢复用，需登录）

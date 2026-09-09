@@ -187,7 +187,12 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 
 	// 流缓冲（Resume Streams）：断线重连可从此 streamId 重放
 	streamID, streamBuf := c.streams.create()
-	defer func() { streamBuf.close(); time.AfterFunc(5*time.Minute, func() { c.streams.remove(streamID) }) }()
+	c.streams.bind(conv.ID, streamID) // 官方 resume 端点按 conversationId 找流
+	defer func() {
+		streamBuf.close()
+		c.streams.unbind(conv.ID)
+		time.AfterFunc(5*time.Minute, func() { c.streams.remove(streamID) })
+	}()
 	buf := func(m map[string]any) { writeUIChunk(w, m); streamBuf.append(mustMarshal(m)) }
 	bufD := func(m map[string]any) { writeUIData(w, m); streamBuf.append(mustMarshal(m)) }
 	bufRaw := func(v any) { writeUIChunk(w, v); b, _ := json.Marshal(v); streamBuf.append(b) }
