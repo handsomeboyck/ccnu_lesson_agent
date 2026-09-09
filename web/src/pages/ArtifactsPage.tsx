@@ -223,13 +223,13 @@ export default function ArtifactsPage() {
       {/* 工具栏：搜索 + 计数 */}
       {items.length > 0 && (
         <div className="mb-4 flex items-center gap-3">
-          <div className="relative max-w-xs flex-1">
-            <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <div className="flex max-w-xs flex-1 items-center gap-2 rounded-md border border-input bg-card px-2.5 transition-shadow focus-within:border-ccnu-blue focus-within:shadow-[0_0_0_2px_rgba(27,75,155,0.15)]">
+            <Search className="size-4 shrink-0 text-muted-foreground" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索文件名 / 技能…"
-              className="input-base pl-8"
+              className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
           </div>
           <span className="ml-auto text-xs text-muted-foreground">
