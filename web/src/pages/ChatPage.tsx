@@ -798,7 +798,6 @@ export default function ChatPage() {
                 </p>
               </div>
               {/* 灵犀式：输入框上方一排快捷功能胶囊（点击填入输入框，可修改后发送） */}
-              <div className="mb-2 text-xs text-muted-foreground">试一试，点击填入输入框：</div>
               <div className="flex flex-wrap items-center justify-center gap-2">
                 {WELCOME_GUIDES.map((g) => (
                   <button
