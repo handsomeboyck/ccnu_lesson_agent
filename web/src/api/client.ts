@@ -198,6 +198,20 @@ export function listMessages(conversationId: string): Promise<{ messages: Server
   return request(`/v1/conversations/${conversationId}/messages`, { auth: true })
 }
 
+// 显式停止某会话的后台生成（生成已与连接解耦，需显式调用才会终止）
+export function stopChat(conversationId: string): Promise<{ ok: boolean; stopped: boolean }> {
+  return request('/v1/chat/stop', { auth: true, method: 'POST', body: { conversation_id: conversationId } })
+}
+
+export interface GeneratingInfo {
+  conversation_id: string
+  started_at: string
+}
+// 正在后台生成的会话列表（刷新/切换后据此恢复展示）
+export function listGenerating(): Promise<{ generating: GeneratingInfo[] }> {
+  return request('/v1/chat/generating', { auth: true })
+}
+
 // ---- Skills & Commands ----
 
 export interface SkillInfo {

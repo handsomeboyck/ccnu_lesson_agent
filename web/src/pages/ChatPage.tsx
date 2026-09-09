@@ -24,6 +24,7 @@ import {
   Trash2,
   Pencil,
   MoreHorizontal,
+  Loader2,
   PanelLeftOpen,
   X,
   type LucideIcon,
@@ -31,10 +32,12 @@ import {
 import {
   deleteConversation,
   listConversations,
+  listGenerating,
   listMessages,
   listSkills,
   logout,
   renameConversation,
+  stopChat,
   uploadChatAttachments,
   type CommandInfo,
   type ServerMessage,
@@ -230,6 +233,43 @@ export default function ChatPage() {
   })
   const streaming = status === 'streaming' || status === 'submitted'
 
+  // 停止生成：本地停止展示 + 显式通知后端终止后台任务（生成已与连接解耦）
+  const stopGeneration = useCallback(() => {
+    const convID = convIdRef.current
+    stop()
+    if (convID) void stopChat(convID).catch(() => {})
+  }, [stop])
+
+  // 刷新恢复：检测正在后台生成的会话 → 轮询到完成后自动加载最新消息
+  const [bgGenerating, setBgGenerating] = useState(false)
+  useEffect(() => {
+    if (!restoredRef.current) return
+    let alive = true
+    const poll = async () => {
+      try {
+        const { generating } = await listGenerating()
+        const mine = activeId && generating.some((g) => g.conversation_id === activeId)
+        setBgGenerating(!!mine)
+        if (mine) {
+          // 生成中：轮询消息，出现新 assistant 回复（或不再生成中）即刷新
+          const { messages: msgs } = await listMessages(activeId)
+          const hasNew = msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant'
+          if (hasNew && alive) {
+            convIdRef.current = activeId
+            setMessages(historyToMessages(msgs))
+          }
+        }
+      } catch {}
+    }
+    void poll()
+    const iv = setInterval(poll, 2500)
+    return () => {
+      alive = false
+      clearInterval(iv)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, restoredRef])
+
   // ---- 初始化（含刷新恢复：会话 + 草稿）----
   useEffect(() => {
     const last = localStorage.getItem('ccnu-last-conv')
@@ -256,7 +296,7 @@ export default function ChatPage() {
 
   const openConversation = useCallback(
     async (id: string) => {
-      if (streaming) stop()
+      // 切换会话不再 stop()：生成在后台继续（断开/切走不中断），完成后自动落库
       stickRef.current = true // 打开会话 → 跟随到底
       setActiveId(id)
       setError('')
@@ -275,7 +315,7 @@ export default function ChatPage() {
         setError(err instanceof Error ? err.message : '加载消息失败')
       }
     },
-    [conversations, streaming, stop, setMessages],
+    [conversations, setMessages],
   )
 
   // 刷新后自动恢复上次打开的会话（列表加载完成后执行一次）
@@ -305,7 +345,7 @@ export default function ChatPage() {
   }, [])
 
   const newChat = useCallback(() => {
-    if (streaming) stop()
+    if (streaming) stopGeneration()
     stickRef.current = true // 新对话 → 跟随到底
     setActiveId(null)
     setError('')
@@ -830,6 +870,12 @@ export default function ChatPage() {
           ))}
 
           {streaming && messages.length > 0 && !hasAnyPart(messages[messages.length - 1]) && <ThinkingIndicator />}
+          {bgGenerating && !streaming && (
+            <div className="mx-auto mt-3 flex w-fit items-center gap-2 rounded-full border border-ccnu-blue/30 bg-ccnu-blue/5 px-3 py-1.5 text-xs text-ccnu-blue-deep">
+              <Loader2 className="size-3.5 animate-spin" />
+              正在后台生成中…完成后将自动显示
+            </div>
+          )}
           {(chatError || error) && (
             <div className="mt-3 flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               <span>⚠ {chatError?.message ?? error}</span>
@@ -893,7 +939,7 @@ export default function ChatPage() {
                 className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none caret-ccnu-blue transition-[height] duration-150 placeholder:text-muted-foreground"
               />
               {streaming ? (
-                <Button variant="danger" size="icon" onClick={stop} title="停止生成">
+                <Button variant="danger" size="icon" onClick={stopGeneration} title="停止生成">
                   <Square className="size-3.5" />
                 </Button>
               ) : (
