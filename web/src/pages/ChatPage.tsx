@@ -243,11 +243,15 @@ export default function ChatPage() {
   // 刷新恢复：检测正在后台生成的会话 → 生成完成后一次性加载完整回复（不抢本地 live 视图）
   const [bgGenerating, setBgGenerating] = useState(false)
   const bgDoneRef = useRef(false)
-  const bgWasGenRef = useRef(false)       // 上一 tick 是否在生成中（true→false = 刚完成）
+  const bgPollEnabled = useRef(false)      // 仅在检测到后台生成时开启轮询（正常对话不碰）
   const streamingRefLocal = useRef(false)
+  const streamEndedRef = useRef(0)         // 流式结束时刻（冷却期，防止冲刷 live 视图）
   streamingRefLocal.current = streaming
   useEffect(() => {
-    if (!restoredRef.current) return
+    if (!streaming) streamEndedRef.current = Date.now()
+  }, [streaming])
+  useEffect(() => {
+    if (!bgPollEnabled.current) return
     let alive = true
     const reloadOnce = async (id: string) => {
       try {
@@ -260,19 +264,16 @@ export default function ChatPage() {
       } catch {}
     }
     const poll = async () => {
-      if (bgDoneRef.current) return
+      if (bgDoneRef.current) { bgPollEnabled.current = false; return }
       try {
         const { generating } = await listGenerating()
         const mine = activeId ? generating.some((g) => g.conversation_id === activeId) : false
         setBgGenerating(!!mine)
-        if (mine) {
-          bgWasGenRef.current = true
-          // 生成中且本地不在流式（避免抢 live 视图）→ 拉一次最新进度
-          if (activeId && !streamingRefLocal.current) await reloadOnce(activeId)
-        } else if (bgWasGenRef.current && activeId && !streamingRefLocal.current) {
-          // 刚完成：一次性收尾加载（最后一次 reload，之后停止轮询）
+        // 流式刚结束 3s 内不轮询（冷却期，保护 live 视图中的 AskCard / 工具卡）
+        if (mine && activeId && !streamingRefLocal.current && Date.now() - streamEndedRef.current > 3000) {
           await reloadOnce(activeId)
-          bgDoneRef.current = true
+        } else if (!mine && bgDoneRef.current) {
+          bgPollEnabled.current = false
         }
       } catch {}
     }
@@ -280,7 +281,7 @@ export default function ChatPage() {
     const iv = setInterval(poll, 2500)
     return () => { alive = false; clearInterval(iv) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, restoredRef])
+  }, [activeId])
 
   // ---- 初始化（含刷新恢复：会话 + 草稿）----
   useEffect(() => {
@@ -320,6 +321,13 @@ export default function ChatPage() {
         convIdRef.current = id
         attachRef.current = []
         setMessages(historyToMessages(msgs))
+        // 若正在后台生成：开启轮询（切换回来 / 刷新恢复场景）
+        void listGenerating().then(({ generating }) => {
+          if (generating.some((g) => g.conversation_id === id)) {
+            bgDoneRef.current = false // 重置（可能上一轮已完成）
+            bgPollEnabled.current = true
+          }
+        })
         requestAnimationFrame(() => {
           const el = scrollRef.current
           if (el) el.scrollTop = el.scrollHeight
@@ -338,6 +346,10 @@ export default function ChatPage() {
     if (id && conversations.some((c) => c.id === id)) {
       restoredRef.current = true
       void openConversation(id)
+      // 检测是否后台生成中（刷新恢复场景）：有则开启轮询
+      void listGenerating().then(({ generating }) => {
+        if (generating.some((g) => g.conversation_id === id)) bgPollEnabled.current = true
+      })
     } else if (!id) {
       restoredRef.current = true
     }
