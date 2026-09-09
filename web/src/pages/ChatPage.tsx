@@ -838,9 +838,10 @@ export default function ChatPage() {
 
         {/* 输入区 */}
         <div className="shrink-0 border-t border-border bg-card px-4 pb-[calc(env(safe-area-inset-bottom)+3.75rem)] pt-3 sm:px-8 lg:pb-3">
-          <div className="mx-auto max-w-3xl">
+          <div className="relative mx-auto max-w-3xl">
             {slashMenu && filteredCommands.length > 0 && (
-              <div className="mb-2 overflow-hidden rounded-lg border border-border bg-card shadow-md">
+              // 悬浮于输入框上方（不挤动上方内容），白底+柔和阴影与输入框同族
+              <div className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-xl border border-border bg-white shadow-[0_6px_20px_rgba(20,35,60,0.1)]">
                 {filteredCommands.map((c) => (
                   <button
                     key={c.skill}
