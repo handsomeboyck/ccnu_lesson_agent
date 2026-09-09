@@ -24,7 +24,8 @@ type knowledgeRetrieve struct{}
 func (s *knowledgeRetrieve) Name() string { return "knowledge_retrieve" }
 func (s *knowledgeRetrieve) Description() string {
 	return "检索用户上传的资料库（pdf/docx/xlsx 等解析后的内容），返回相关片段并标注出处。当用户问题可能来自上传的资料、或希望" +
-		"答案引用资料内容时应先调用；资料库为空或未命中时告知用户可先上传文件。"
+		"答案引用资料内容时应先调用；资料库为空或未命中时告知用户可先上传文件。query 请提炼最关键的关键词（含用户提到的文件名/章节名线索），" +
+		"越精炼命中越准；检索同时覆盖正文与文件名。"
 }
 func (s *knowledgeRetrieve) Modes() []string { return []string{} } // 全部模式
 

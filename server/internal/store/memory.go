@@ -360,7 +360,7 @@ func (s *memoryStore) ReplaceChunks(ctx context.Context, docID string, chunks []
 	return nil
 }
 
-// SearchChunks 关键词检索：把 query 按空白拆分，任一关键词命中即返回（简单起步）。
+// SearchChunks 关键词检索：检索分块正文 + 文档标题（文件名），文件名命中优先排序（与 pg 版语义一致）。
 func (s *memoryStore) SearchChunks(ctx context.Context, userID, query string, topK int) ([]ChunkHit, error) {
 	keywords := strings.Fields(query)
 	if len(keywords) == 0 {
@@ -375,7 +375,11 @@ func (s *memoryStore) SearchChunks(ctx context.Context, userID, query string, to
 }
 
 func (s *memoryStore) searchChunksLocked(userID, docID string, keywords []string, topK int) []ChunkHit {
-	var hits []ChunkHit
+	type hit struct {
+		c        ChunkHit
+		filename bool
+	}
+	var hits []hit
 	for _, d := range s.documents {
 		if d.UserID != userID {
 			continue
@@ -383,24 +387,49 @@ func (s *memoryStore) searchChunksLocked(userID, docID string, keywords []string
 		if docID != "" && d.ID != docID {
 			continue
 		}
+		docFilenameHit := false
+		dl := strings.ToLower(d.Filename)
+		for _, kw := range keywords {
+			if strings.Contains(dl, strings.ToLower(kw)) {
+				docFilenameHit = true
+				break
+			}
+		}
 		for _, c := range s.docChunks[d.ID] {
 			if c == nil {
 				continue
 			}
 			lower := strings.ToLower(c.Content)
+			contentHit := false
 			for _, kw := range keywords {
 				if strings.Contains(lower, strings.ToLower(kw)) {
-					hits = append(hits, ChunkHit{Chunk: *c, Filename: d.Filename})
+					contentHit = true
 					break
 				}
 			}
+			if contentHit || docFilenameHit {
+				hits = append(hits, hit{c: ChunkHit{Chunk: *c, Filename: d.Filename}, filename: docFilenameHit})
+			}
 		}
 	}
-	sort.Slice(hits, func(i, j int) bool { return hits[i].Filename < hits[j].Filename })
-	if len(hits) > topK {
-		hits = hits[:topK]
+	// 文件名命中优先，其次文件名、块序号
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].filename != hits[j].filename {
+			return hits[i].filename
+		}
+		if hits[i].c.Filename != hits[j].c.Filename {
+			return hits[i].c.Filename < hits[j].c.Filename
+		}
+		return hits[i].c.Seq < hits[j].c.Seq
+	})
+	var out []ChunkHit
+	for i, h := range hits {
+		if i >= topK {
+			break
+		}
+		out = append(out, h.c)
 	}
-	return hits
+	return out
 }
 
 func (s *memoryStore) GetDocumentsByIDs(ctx context.Context, userID string, ids []string) ([]*Document, error) {
