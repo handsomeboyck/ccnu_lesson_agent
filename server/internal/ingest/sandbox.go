@@ -23,16 +23,18 @@ var SandboxParse func(filename string, data []byte) (string, bool, error)
 // 2) PDF 兜底 PyMuPDF（对中文 ToUnicode CMap 处理更强，实测吕艳坤类中文 PDF 提取完整）；
 // 3) 结果写 /out/extract.md（经产物通道回传，规避 stdout 64KB 截断）。
 const sandboxExtractCode = `
-import os, sys
+import os, sys, subprocess
 
 src = [f for f in os.listdir('/in') if not f.startswith('.')]
 if not src:
     print('NO_INPUT', file=sys.stderr)
     sys.exit(2)
 path = '/in/' + src[0]
+name = src[0]
+ext = name.lower().rsplit('.', 1)[-1] if '.' in name else ''
 
 out = None
-# 1) MarkItDown（多格式统一）
+# 1) MarkItDown（多格式统一；老式二进制 .doc 不支持会抛错跳过）
 try:
     from markitdown import MarkItDown
     r = MarkItDown().convert(path)
@@ -42,9 +44,9 @@ except Exception as e:
     print('markitdown skip: %s' % e, file=sys.stderr)
 
 # 2) PDF 兜底：PyMuPDF（中文 CID 字体 PDF 提取可靠）
-if out is None and path.lower().endswith('.pdf'):
+if out is None and ext == 'pdf':
     try:
-        import fitz  # PyMuPDF
+        import fitz
         d = fitz.open(path)
         parts = []
         for p in d:
@@ -56,6 +58,36 @@ if out is None and path.lower().endswith('.pdf'):
     except Exception as e:
         print('pymupdf skip: %s' % e, file=sys.stderr)
 
+# 3) 老式 .doc（Word 6/95/97-2003 二进制）：antiword → soffice 兜底
+if out is None and ext == 'doc':
+    try:
+        r = subprocess.run(['antiword', '-m', 'UTF-8.txt', path],
+                           capture_output=True, timeout=40)
+        t = r.stdout.decode('utf-8', 'ignore')
+        if r.returncode == 0 and len(t.strip()) > 20:
+            out = t
+        else:
+            print('antiword skip: rc=%s' % r.returncode, file=sys.stderr)
+    except Exception as e:
+        print('antiword skip: %s' % e, file=sys.stderr)
+    if out is None:
+        try:
+            os.makedirs('/tmp/conv', exist_ok=True)
+            r = subprocess.run(
+                ['soffice', '--headless', '-env:UserInstallation=file:///tmp/lo',
+                 '--convert-to', 'txt:Text', '--outdir', '/tmp/conv', path],
+                capture_output=True, timeout=55)
+            txt = os.path.join('/tmp/conv', name.rsplit('.', 1)[0] + '.txt')
+            if r.returncode == 0 and os.path.exists(txt):
+                with open(txt, 'r', encoding='utf-8', errors='ignore') as f:
+                    t = f.read()
+                if len(t.strip()) > 20:
+                    out = t
+            else:
+                print('soffice skip: rc=%s' % r.returncode, file=sys.stderr)
+        except Exception as e:
+            print('soffice skip: %s' % e, file=sys.stderr)
+
 if not out:
     print('EXTRACT_EMPTY', file=sys.stderr)
     sys.exit(3)
@@ -66,7 +98,7 @@ try:
         f.write(out)
 except Exception as e:
     print('write fail: %s' % e, file=sys.stderr)
-    sys.stdout.write(out)  # stdout 兜底（可能被截断）
+    sys.stdout.write(out)
     sys.exit(0)
 print('EXTRACT_OK len=%d' % len(out))
 `
