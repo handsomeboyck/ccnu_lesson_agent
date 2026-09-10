@@ -51,6 +51,7 @@ import AskCard from '../components/chat/AskCard'
 import ArtifactCards from '../components/chat/ArtifactCards'
 import { ThinkingCard, ThinkingIndicator } from '../components/chat/ThinkingCard'
 import MobileTabBar from '../components/MobileTabBar'
+import GeneratingIndicator from '../components/GeneratingIndicator'
 import { useChatStream, type ChatStreamMessage } from '../lib/useChatStream'
 import type { CcnnPart } from '../lib/streamMerge'
 
@@ -245,6 +246,32 @@ export default function ChatPage() {
     },
   })
   const streaming = chatStatus === 'streaming'
+
+  // ---- 正在执行的会话集合（侧栏"正在执行中"动画）----
+  // 数据源：后端 /v1/chat/generating（权威，覆盖切走/刷新后的后台生成）+ 本地当前流即时并入
+  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    let alive = true
+    const refresh = async () => {
+      try {
+        const { generating } = await listGenerating()
+        if (!alive) return
+        setGeneratingIds(new Set(generating.map((g) => g.conversation_id)))
+      } catch {
+        // 静默：轮询失败保持上次状态
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh() // 页面不可见时暂停轮询
+    }, 5000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [])
+  // 某会话是否正在执行：后端集合 ∪ 当前本地流（即时，避免 5s 轮询延迟）
+  const isExecuting = (id: string) => generatingIds.has(id) || (streaming && convIdRef.current === id)
 
   // 权威兜底：问后端"该会话是否在生成"，是则轮询 DB 直到 assistant 回复出现（最长 ~15min）
   const fallbackWatch = useCallback(
@@ -651,6 +678,7 @@ export default function ChatPage() {
                       })()}
                     </span>
                     <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                    {isExecuting(c.id) && <GeneratingIndicator />}
                     <span className="hidden shrink-0 gap-0.5 group-hover:flex">
                       <button
                         className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -1067,6 +1095,7 @@ export default function ChatPage() {
                       })()}
                     </span>
                     <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                    {isExecuting(c.id) && <GeneratingIndicator />}
                     <span className="flex shrink-0 gap-1">
                       <button
                         className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
