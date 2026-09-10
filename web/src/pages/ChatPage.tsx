@@ -41,7 +41,7 @@ import {
   type ServerMessageArtifact,
 } from '../api/client'
 import { useAuth } from '../store/auth'
-import FileIcon from '../components/FileIcon'
+import FileCard from '../components/FileCard'
 import { Button } from '../components/ui/button'
 import { MODE_LABELS, type Conversation, type Mode } from '../types'
 import ChatMarkdown from '../components/chat/ChatMarkdown'
@@ -142,29 +142,6 @@ function groupByDay(list: Conversation[]): { label: string; items: Conversation[
   return groups.filter((g) => g.items.length > 0)
 }
 
-function fmtFileSize(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
-}
-function mimeOf(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() ?? ''
-  switch (ext) {
-    case 'pdf':
-      return 'application/pdf'
-    case 'docx':
-    case 'doc':
-      return 'application/msword'
-    case 'xlsx':
-    case 'xls':
-      return 'application/vnd.ms-excel'
-    case 'csv':
-      return 'text/csv'
-    default:
-      return 'text/plain'
-  }
-}
-
 // ---- 主组件 ----
 
 export default function ChatPage() {
@@ -178,6 +155,9 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  // 附件卡片状态（key = `${name}-${size}`）：pending=就绪待发送 / error=解析失败（保留可重试）
+  const [attachStates, setAttachStates] = useState<Record<string, { status: 'pending' | 'error'; error?: string }>>({})
+  const fileKey = (f: { name: string; size: number }) => `${f.name}-${f.size}`
   const [dragActive, setDragActive] = useState(false)
   const [error, setError] = useState('')
   const [slashMenu, setSlashMenu] = useState(false)
@@ -469,10 +449,22 @@ export default function ChatPage() {
       if (pendingFiles.some((p) => p.name === f.name && p.size === f.size)) continue
       ok.push(f)
     }
-    if (ok.length > 0) setPendingFiles((prev) => [...prev, ...ok])
+    if (ok.length > 0) {
+      setPendingFiles((prev) => [...prev, ...ok])
+      setAttachStates((prev) => {
+        const next = { ...prev }
+        for (const f of ok) next[fileKey(f)] = { status: 'pending' }
+        return next
+      })
+    }
   }
   function removeFile(name: string, size: number) {
     setPendingFiles((prev) => prev.filter((f) => !(f.name === name && f.size === size)))
+    setAttachStates((prev) => {
+      const next = { ...prev }
+      delete next[`${name}-${size}`]
+      return next
+    })
   }
 
   // ---- 发送 ----
@@ -484,14 +476,21 @@ export default function ChatPage() {
     stickRef.current = true // 主动发送 → 恢复贴底跟随
 
     let attachIds: string[] = []
-    const failed: string[] = []
+    const failed: { key: string; file?: File; error: string }[] = []
+    const failedFiles: File[] = []
     if (pendingFiles.length > 0) {
       setUploading(true)
       try {
         const results = await uploadChatAttachments(pendingFiles)
         for (const r of results) {
-          if (r.status === 'ready' && r.doc_id) attachIds.push(r.doc_id)
-          else if (r.error) failed.push(`${r.filename}：${r.error}`)
+          const f = pendingFiles.find((x) => x.name === r.filename)
+          if (r.status === 'ready' && r.doc_id) {
+            attachIds.push(r.doc_id)
+          } else {
+            const errMsg = r.error || '解析失败'
+            failed.push({ key: `${r.filename}-${f?.size ?? 0}`, file: f, error: errMsg })
+            if (f) failedFiles.push(f)
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : '附件上传失败')
@@ -508,16 +507,29 @@ export default function ChatPage() {
     setInput('')
     if (taRef.current) taRef.current.style.height = 'auto' // 发送后收起输入框
     setSlashMenu(false)
-    setError('')
 
-    // 展示文本：原文 + 附件标记（适配层会剥离 📎 行）
-    let display = content
-    if (attachIds.length > 0) {
-      const names = pendingFiles.map((f) => f.name)
-      if (names.length > 0) display = (display ? display + '\n\n' : '') + names.map((n) => `📎 ${n}`).join('\n')
+    // 失败附件保留在输入区（error 卡片可重试/移除）；成功附件进入消息
+    const sentFiles = pendingFiles.filter((f) => !failedFiles.some((x) => x.name === f.name && x.size === f.size))
+    setPendingFiles(failedFiles)
+    setAttachStates((prev) => {
+      const next = { ...prev }
+      for (const f2 of failed) next[f2.key] = { status: 'error', error: f2.error }
+      return next
+    })
+
+    // 全失败且无输入：不发送（解析失败的卡片留在输入区等待重试/移除）
+    if (!content && attachIds.length === 0) {
+      if (failed.length > 0) setError(`附件解析失败：${failed.map((x) => x.file?.name ?? x.key).join('；')}（可点击重试或移除）`)
+      sendingRef.current = false
+      return
     }
-    setPendingFiles([])
-    if (failed.length > 0) setError(`部分附件失败：${failed.join('；')}`)
+
+    // 展示文本：原文 + 成功附件标记（适配层会剥离 📎 行）
+    let display = content
+    if (attachIds.length > 0 && sentFiles.length > 0) {
+      display = (display ? display + '\n\n' : '') + sentFiles.map((f) => `📎 ${f.name}`).join('\n')
+    }
+    if (failed.length > 0) setError(`部分附件解析失败：${failed.map((x) => x.file?.name ?? x.key).join('；')}（可点击重试或移除）`)
     stickRef.current = true
     void streamSend({
       text: content || (attachIds.length > 0 ? '请阅读我上传的文件并给出简要总结。' : ''),
@@ -533,6 +545,52 @@ export default function ChatPage() {
       const el = scrollRef.current
       if (el) el.scrollTop = el.scrollHeight
     })
+  }
+
+  // 附件解析失败重试：重新上传该文件 → 成功后直接作为消息发送（附当前输入或默认指令）
+  async function retryFile(f: File) {
+    if (uploading || streaming || sendingRef.current) return
+    const key = fileKey(f)
+    sendingRef.current = true
+    setUploading(true)
+    setAttachStates((prev) => {
+      const next = { ...prev }
+      delete next[key] // 先移除 error 态（卡片切换为解析中动效）
+      return next
+    })
+    try {
+      const results = await uploadChatAttachments([f])
+      const r = results[0]
+      if (r.status === 'ready' && r.doc_id) {
+        setPendingFiles((prev) => prev.filter((x) => fileKey(x) !== key))
+        setAttachStates((prev) => {
+          const n = { ...prev }
+          delete n[key]
+          return n
+        })
+        const text = input.trim() || '请阅读我上传的文件并给出简要总结。'
+        setInput('')
+        setError('')
+        stickRef.current = true
+        void streamSend({
+          text,
+          displayText: text,
+          convId: convIdRef.current,
+          mode: activeConv ? activeConv.mode : draftMode,
+          attachments: [r.doc_id],
+          listMessages: async (cid) => (await listMessages(cid)).messages,
+          toMessages: historyToMessages,
+        })
+        void refreshConversations()
+      } else {
+        setAttachStates((prev) => ({ ...prev, [key]: { status: 'error', error: r.error || '解析失败' } }))
+      }
+    } catch (err) {
+      setAttachStates((prev) => ({ ...prev, [key]: { status: 'error', error: err instanceof Error ? err.message : '上传失败' } }))
+    } finally {
+      sendingRef.current = false
+      setUploading(false)
+    }
   }
 
   // ---- 会话操作 ----
@@ -1015,26 +1073,33 @@ export default function ChatPage() {
                   <Square className="size-3.5" />
                 </Button>
               ) : (
-                <Button size="icon" onClick={() => void handleSend()} disabled={!input.trim() && pendingFiles.length === 0} title="发送">
-                  <Send className="size-4" />
+                <Button
+                  size="icon"
+                  onClick={() => void handleSend()}
+                  disabled={(!input.trim() && pendingFiles.length === 0) || uploading}
+                  title={uploading ? '文件解析中…' : '发送'}
+                >
+                  {uploading ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
                 </Button>
               )}
             </div>
             {(pendingFiles.length > 0 || uploading) && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {pendingFiles.map((f) => (
-                  <span key={`${f.name}-${f.size}`} className="flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs">
-                    <FileIcon name={f.name} mime={mimeOf(f.name)} size={14} />
-                    <span className="max-w-40 truncate">{f.name}</span>
-                    <span className="text-muted-foreground">{fmtFileSize(f.size)}</span>
-                    {!streaming && !uploading && (
-                      <button className="text-muted-foreground hover:text-destructive" onClick={() => removeFile(f.name, f.size)}>
-                        ✕
-                      </button>
-                    )}
-                  </span>
-                ))}
-                {uploading && <span className="text-xs text-muted-foreground">⏳ 解析上传中…</span>}
+              <div className="group mt-2 flex flex-wrap gap-2">
+                {pendingFiles.map((f) => {
+                  const key = fileKey(f)
+                  const st = attachStates[key]
+                  return (
+                    <FileCard
+                      key={key}
+                      name={f.name}
+                      size={f.size}
+                      state={uploading ? 'uploading' : st?.status === 'error' ? 'error' : 'pending'}
+                      error={st?.error}
+                      onRemove={() => removeFile(f.name, f.size)}
+                      onRetry={() => void retryFile(f)}
+                    />
+                  )
+                })}
               </div>
             )}
             <p className="mt-1.5 text-center text-[11px] text-muted-foreground">
