@@ -20,10 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 解析与科学计算常用库（国内源加速）
+# markitdown：微软开源文档→Markdown（pdf/docx/pptx/xls/xlsx 统一解析，沙箱文档解析通道用）
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
       pdfplumber PyMuPDF python-docx python-pptx openpyxl \
       reportlab fpdf2 \
-      pandas numpy matplotlib Pillow pytesseract
+      pandas numpy matplotlib Pillow pytesseract \
+      markitdown
 
 # 非 root 沙箱用户（uid 1000 与 docker --user 一致）
 RUN useradd -m -u 1000 sandbox

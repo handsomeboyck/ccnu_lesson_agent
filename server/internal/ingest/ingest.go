@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/extrame/xls"
 	"github.com/ledongthuc/pdf"
@@ -40,29 +41,72 @@ func ParseFile(path string) (string, error) {
 }
 
 // ParseBytes 按文件名后缀解析内容为纯文本。
+// 优先沙箱成熟解析（MarkItDown/PyMuPDF，注入式），失败回退本地 Go 解析；
+// 本地结果再做可读性兜底检测（防静默入库乱码）。
 func ParseBytes(filename string, data []byte) (string, error) {
+	// 沙箱优先：成熟解析器提取（pdf/docx/pptx/doc/xls/xlsx）
+	if SandboxParse != nil {
+		if text, handled, err := SandboxParse(filename, data); handled && err == nil {
+			return text, nil // 沙箱已返回可信文本（looksReadable 已校验）
+		}
+	}
+	// 回退本地解析
 	switch ExtOf(filename) {
 	case "pdf":
-		return parsePDF(bytes.NewReader(data))
+		text, err := parsePDF(bytes.NewReader(data))
+		return verifyReadable(filename, text, err)
 	case "docx":
-		return parseDOCX(data)
+		text, err := parseDOCX(data)
+		return verifyReadable(filename, text, err)
 	case "doc":
 		// 老式 Word 二进制（6.0/95/97-2003）：antiword 提取；RTF 伪装 .doc 走 RTF 兜底
 		text, err := execText("antiword", nil, data, ".doc")
 		if err != nil && looksLikeRTF(data) {
-			return parseRTF(data), nil
+			return verifyReadable(filename, parseRTF(data), nil)
 		}
-		return text, err
+		return verifyReadable(filename, text, err)
 	case "xlsx":
-		return parseXLSX(data)
+		text, err := parseXLSX(data)
+		return verifyReadable(filename, text, err)
 	case "xls":
 		// 老式 Excel 二进制：纯 Go 解析（extrame/xls，无 OS 依赖）
-		return parseXLS(data)
+		text, err := parseXLS(data)
+		return verifyReadable(filename, text, err)
 	case "txt", "md", "csv", "markdown":
 		return string(data), nil
 	default:
 		return "", fmt.Errorf("不支持的文件类型 .%s（支持 pdf/docx/xlsx/txt/md）: %w", ExtOf(filename), ErrUnsupported)
 	}
+}
+
+// verifyReadable 兜底检测：结果不可读（无效 UTF-8 / 大量替换符）→ 明确报错，
+// 避免把乱码静默入库（如 ledongthuc/pdf 对中文 CID 字体 PDF 的缺陷产物）。
+func verifyReadable(filename, text string, err error) (string, error) {
+	if err != nil {
+		return "", err
+	}
+	if !looksReadable(text) {
+		return "", fmt.Errorf("解析结果不可读（编码问题），建议转存为 docx/txt 后重新上传，或使用 /py 让沙箱解析该文件")
+	}
+	return text, nil
+}
+
+// looksReadable 文本可读性粗检：非空 + UTF-8 合法 + 替换符（U+FFFD）占比不过高。
+// 用于"解析结果兜底检测"与"沙箱结果可信度校验"，不承担主解析职责。
+func looksReadable(s string) bool {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return false
+	}
+	if !utf8.ValidString(t) {
+		return false
+	}
+	// GBK/损坏字节产物通常伴随大量 U+FFFD；占比 >25% 视作不可读
+	repl := strings.Count(t, "\uFFFD")
+	if repl > 0 && repl*4 > len([]rune(t)) {
+		return false
+	}
+	return true
 }
 
 // execText 用外部命令行工具从字节数据提取文本（antiword 等；服务端需安装对应包）。

@@ -21,6 +21,7 @@ import (
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/config"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/gateway"
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/ingest"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/model"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/skill"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
@@ -81,6 +82,8 @@ func main() {
 		reg.SetDisabled("execute_code", true)
 		log.Printf("codex sandbox: disabled (CODEX_URL not set); execute_code hidden")
 	}
+	// 文档解析：沙箱优先（MarkItDown/PyMuPDF 成熟解析器），沙箱不可用回退本地 Go 解析
+	ingest.SandboxParse = ingest.NewSandboxParser(codexCli)
 
 	apiHandler := gateway.New(cfg, authSvc, st, prov, reg, loader, codexCli, cfg.OpenAIModel)
 
