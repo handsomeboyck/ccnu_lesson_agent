@@ -11,7 +11,7 @@ try {
   const checks = {
     '渲染产出非空 HTML': html.length > 500,
     '包含品牌标题「华中师范大学」': html.includes('华中师范大学'),
-    '包含欢迎引导「苏格拉底式答疑」': html.includes('苏格拉底式答疑'),
+    '包含欢迎引导「诊断教学设计」': html.includes('诊断教学设计'),
     '包含模式标签「智能助教」': html.includes('智能助教'),
     '包含输入框占位': html.includes('输入消息') || html.includes('输入 / 唤起快捷功能'),
   }
