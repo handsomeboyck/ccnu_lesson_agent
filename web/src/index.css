@@ -2633,3 +2633,31 @@ button.artifact-file:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ---- 附件文件卡片（DeepSeek Chat 风格）：解析 spinner + 不确定进度条 ---- */
+.ds-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(27, 75, 155, 0.18);
+  border-top-color: var(--color-ccnu-blue);
+  border-radius: 50%;
+  animation: ds-spin 0.7s linear infinite;
+}
+@keyframes ds-spin { to { transform: rotate(360deg); } }
+.ds-progress-track {
+  height: 3px;
+  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
+  overflow: hidden;
+}
+.ds-progress-bar {
+  height: 100%;
+  width: 35%;
+  background: var(--color-ccnu-blue);
+  border-radius: 2px;
+  animation: ds-indeterminate 1.1s ease-in-out infinite;
+}
+@keyframes ds-indeterminate {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(320%); }
+}

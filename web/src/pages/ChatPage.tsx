@@ -1,10 +1,8 @@
-// ChatPage v2：AI SDK v7 useChat + UI message stream 协议。
+// ChatPage v3：自研流式引擎（useChatStream）——正常发送 / 断点续流 / 权威兜底统一处理。
 // 消息渲染基于 parts（text / reasoning / tool-* / data-ccnu），四类卡片：
 // 思考卡（ThinkingCard）、工具卡（ToolCard）、产物卡（ArtifactCards）、提问卡（AskCard）。
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { useChat } from '@ai-sdk/react'
-import { DefaultChatTransport, type UIMessage } from 'ai'
 import {
   Activity,
   ExternalLink,
@@ -19,7 +17,6 @@ import {
   Puzzle,
   Search,
   Send,
-  Sparkles,
   Square,
   Trash2,
   Pencil,
@@ -32,6 +29,7 @@ import {
 import {
   deleteConversation,
   listConversations,
+  listGenerating,
   listMessages,
   listSkills,
   logout,
@@ -43,7 +41,7 @@ import {
   type ServerMessageArtifact,
 } from '../api/client'
 import { useAuth } from '../store/auth'
-import FileIcon from '../components/FileIcon'
+import FileCard from '../components/FileCard'
 import { Button } from '../components/ui/button'
 import { MODE_LABELS, type Conversation, type Mode } from '../types'
 import ChatMarkdown from '../components/chat/ChatMarkdown'
@@ -52,33 +50,36 @@ import AskCard from '../components/chat/AskCard'
 import ArtifactCards from '../components/chat/ArtifactCards'
 import { ThinkingCard, ThinkingIndicator } from '../components/chat/ThinkingCard'
 import MobileTabBar from '../components/MobileTabBar'
+import GeneratingIndicator from '../components/GeneratingIndicator'
+import { useChatStream, type ChatStreamMessage } from '../lib/useChatStream'
+import type { CcnnPart } from '../lib/streamMerge'
 
 // ---- 常量与工具 ----
 
 const WELCOME_GUIDES = [
   {
-    icon: Sparkles,
-    title: '苏格拉底式答疑',
-    desc: '引导你理解概念，而非直接给答案',
-    prompt: '用苏格拉底式提问帮我理解「导数」的概念',
+    icon: Puzzle,
+    title: '诊断教学设计',
+    desc: '诊断物理教学设计中的问题与改进方向',
+    prompt: '/diagnose 帮我诊断物理教学设计问题',
+  },
+  {
+    icon: GraduationCap,
+    title: '理论研修',
+    desc: '结合最近发展区理论设计物理教学过程',
+    prompt: '/theory 帮我讲讲怎么设计物理教学过程符合最近发展区',
   },
   {
     icon: NotebookPen,
-    title: '练习与测评',
-    desc: '按难度出题、批改作答、诊断薄弱点',
-    prompt: '生成 5 道一元二次方程练习题',
+    title: '课堂设问',
+    desc: '围绕物理概念出题，促进学生思维',
+    prompt: '/quiz 帮我按照物理概念教学，出课上的2个问题，促进学生思维，围绕电场强度概念',
   },
   {
     icon: Search,
-    title: '生成学习文件',
-    desc: '一键生成 Word 试卷 / PPT 课件 / 图表 / PDF',
-    prompt: '让 AI 生成一份三角函数教案 Word 文档',
-  },
-  {
-    icon: Library,
-    title: '资料库问答',
-    desc: '上传讲义后，AI 基于你的资料作答并标注出处',
-    prompt: '根据我的资料库讲一下勾股定理的证明思路',
+    title: '教学研究检索',
+    desc: '检索物理教学模式与方法的相关资料',
+    prompt: '/search 如何在实验教学中运用物理教学模式和方法',
   },
 ]
 
@@ -89,14 +90,14 @@ const MODE_ICONS: Record<string, LucideIcon> = {
   teacher: PenLine,
 }
 
-/** 历史消息（REST）→ AI SDK UIMessage（工具轨迹/产物映射为 parts）。 */
-function historyToMessages(msgs: ServerMessage[]): UIMessage[] {
+/** 历史消息（REST）→ 消息 parts（与流式渲染同一套 parts 模型）。 */
+function historyToMessages(msgs: ServerMessage[]): ChatStreamMessage[] {
   return msgs.map((m) => {
-    const parts: UIMessage['parts'] = []
+    const parts: CcnnPart[] = []
     if (m.role === 'assistant') {
       // 思考链（发生顺序：思考 → 工具 → 文本）
       if (m.reasoning) {
-        parts.push({ type: 'reasoning', text: m.reasoning, state: 'done' } as UIMessage['parts'][number])
+        parts.push({ type: 'reasoning', id: 'r1', text: m.reasoning, state: 'done' })
       }
       for (const [i, t] of (m.tool_steps ?? []).entries()) {
         parts.push({
@@ -105,24 +106,18 @@ function historyToMessages(msgs: ServerMessage[]): UIMessage[] {
           state: 'output-available',
           output: { summary: t.summary },
           providerExecuted: true,
-        } as UIMessage['parts'][number])
+        })
       }
       if (m.artifacts && m.artifacts.length > 0) {
-        parts.push({
-          type: 'data-ccnu',
-          data: { type: 'artifacts', artifacts: m.artifacts },
-        } as UIMessage['parts'][number])
+        parts.push({ type: 'data-ccnu', data: { type: 'artifacts', artifacts: m.artifacts } })
       }
       // ask_user 触发时的提问卡（历史回看重建 AskCard）
       if (m.ask && m.ask.question) {
-        parts.push({
-          type: 'data-ccnu',
-          data: { type: 'ask', question: m.ask.question, options: m.ask.options ?? [] },
-        } as UIMessage['parts'][number])
+        parts.push({ type: 'data-ccnu', data: { type: 'ask', question: m.ask.question, options: m.ask.options ?? [] } })
       }
     }
-    parts.push({ type: 'text', text: m.content } as UIMessage['parts'][number])
-    return { id: m.id, role: m.role === 'user' ? 'user' : 'assistant', parts } as UIMessage
+    parts.push({ type: 'text', text: m.content })
+    return { id: m.id, role: m.role === 'user' ? 'user' : 'assistant', parts }
   })
 }
 
@@ -147,29 +142,6 @@ function groupByDay(list: Conversation[]): { label: string; items: Conversation[
   return groups.filter((g) => g.items.length > 0)
 }
 
-function fmtFileSize(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
-}
-function mimeOf(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() ?? ''
-  switch (ext) {
-    case 'pdf':
-      return 'application/pdf'
-    case 'docx':
-    case 'doc':
-      return 'application/msword'
-    case 'xlsx':
-    case 'xls':
-      return 'application/vnd.ms-excel'
-    case 'csv':
-      return 'text/csv'
-    default:
-      return 'text/plain'
-  }
-}
-
 // ---- 主组件 ----
 
 export default function ChatPage() {
@@ -183,6 +155,9 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  // 附件卡片状态（key = `${name}-${size}`）：pending=就绪待发送 / error=解析失败（保留可重试）
+  const [attachStates, setAttachStates] = useState<Record<string, { status: 'pending' | 'error'; error?: string }>>({})
+  const fileKey = (f: { name: string; size: number }) => `${f.name}-${f.size}`
   const [dragActive, setDragActive] = useState(false)
   const [error, setError] = useState('')
   const [slashMenu, setSlashMenu] = useState(false)
@@ -204,44 +179,8 @@ export default function ChatPage() {
   const convLoadedRef = useRef(false)             // 会话列表是否已加载完成
   const activeConv = conversations.find((c) => c.id === activeId) ?? null
 
-  // ---- AI SDK chat（v7：显式 transport + 请求适配层）----
-  // throttle: 50ms —— 官方排障：默认每 chunk 全量重渲染，密集流（长报告/大工具参数）会触发
-  // React #185（Maximum update depth exceeded），节流后按 50ms 批量更新 UI。
-  const { messages, setMessages, sendMessage, status, stop, error: chatError } = useChat({
-    throttle: 50,
-    transport: new DefaultChatTransport<UIMessage>({
-      api: '/v1/chat',
-      headers: () => ({ Authorization: `Bearer ${useAuth.getState().accessToken ?? ''}` }),
-      body: { mode: 'companion' },
-      prepareSendMessagesRequest: ({ messages: msgs, headers }) => {
-        const lastUser = [...msgs].reverse().find((m) => m.role === 'user')
-        const text = (lastUser?.parts ?? [])
-          .filter((p) => p.type === 'text')
-          .map((p) => (p as { text: string }).text)
-          .join('')
-          .split('\n')
-          .filter((l) => !l.startsWith('📎 ')) // 展示用附件标记剥离
-          .join('\n')
-          .trim()
-        const attachments = attachRef.current
-        return {
-          api: '/v1/chat',
-          headers,
-          body: {
-            conversation_id: convIdRef.current,
-            content: text || (attachments.length > 0 ? '请阅读我上传的文件并给出简要总结。' : ''),
-            mode: modeRef.current,
-            attachments: attachments.length > 0 ? attachments : undefined,
-          },
-        }
-      },
-    }),
-  })
-  const streaming = status === 'streaming' || status === 'submitted'
-
   // ---- Resume Streams：会话的 streamId 映射（localStorage 持久化，刷新不丢）----
   const streamMapRef = useRef<Record<string, string>>({}) // convId → streamId
-  const [bgGenerating, setBgGenerating] = useState(false) // 后台生成中提示
 
   // 初始化：从 localStorage 恢复 streamMap
   useEffect(() => {
@@ -252,22 +191,6 @@ export default function ChatPage() {
     }
   }, [])
 
-  // meta chunk 到达时捕获 streamId（写内存 + localStorage）
-  useEffect(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      for (const p of messages[i].parts ?? []) {
-        if (p.type === 'data-ccnu' && (p as any).data?.type === 'meta' && (p as any).data.streamId) {
-          const sid = (p as any).data.streamId as string
-          if (convIdRef.current) {
-            streamMapRef.current[convIdRef.current] = sid
-            localStorage.setItem('ccnu-stream-map', JSON.stringify(streamMapRef.current))
-          }
-          return
-        }
-      }
-    }
-  }, [messages])
-
   // 清理某会话的 streamMap 记录
   const clearStream = useCallback((convId: string) => {
     if (streamMapRef.current[convId]) {
@@ -276,44 +199,71 @@ export default function ChatPage() {
     }
   }, [])
 
-  // watchGeneration：订阅重放端点作为"完成信号"，收到 [DONE] 后从 DB 拉权威消息。
-  // 不做手工重建——DB 是唯一数据源，避免切换渲染错乱/重复。
-  const watchGeneration = useCallback(
-    async (convId: string, streamId: string) => {
-      const token = useAuth.getState().accessToken ?? ''
+  // ---- 自研流式引擎（发送 / 断点续流 / 权威兜底统一）----
+  const {
+    messages,
+    setMessages,
+    status: chatStatus,
+    error: chatError,
+    bgGenerating,
+    setBgGenerating,
+    sendMessage: streamSend,
+    resume: streamResume,
+    stop: streamStop,
+  } = useChatStream({
+    onMeta: ({ conversationId, streamId }) => {
+      // 会话 id 回传 + streamMap 持久化（直接用 meta 数据做 key，
+      // 修复旧实现"meta 先于 convIdRef 赋值导致映射丢失"的竞态）
+      convIdRef.current = conversationId
+      streamMapRef.current[conversationId] = streamId
+      localStorage.setItem('ccnu-stream-map', JSON.stringify(streamMapRef.current))
+      setActiveId((prev) => (prev && prev !== conversationId ? prev : conversationId))
+      void refreshConversations()
+    },
+    onDone: () => {
+      void refreshConversations()
+    },
+  })
+  const streaming = chatStatus === 'streaming'
+
+  // ---- 正在执行的会话集合（侧栏"正在执行中"动画）----
+  // 数据源：后端 /v1/chat/generating（权威，覆盖切走/刷新后的后台生成）+ 本地当前流即时并入
+  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    let alive = true
+    const refresh = async () => {
       try {
-        if (convIdRef.current === convId) setBgGenerating(true)
-        const r = await fetch(`/v1/chat/stream/${streamId}`, { headers: { Authorization: `Bearer ${token}` } })
-        if (!r.ok) {
-          // 流已过期 → 直接 DB 兜底
-          clearStream(convId)
-          if (convIdRef.current === convId) setBgGenerating(false)
-          return
-        }
-        const rd = r.body?.getReader()
-        if (!rd) return
-        const dc = new TextDecoder()
-        let buf = ''
-        let done = false
-        // 读到 [DONE]（或连接关闭）即生成完成
-        while (!done) {
-          const { done: rdDone, value } = await rd.read()
-          if (rdDone) break
-          buf += dc.decode(value, { stream: true })
-          const ls = buf.split('\n')
-          buf = ls.pop() ?? ''
-          for (const l of ls) {
-            if (l.startsWith('data: ') && l.slice(6).trim() === '[DONE]') {
-              done = true
-              break
-            }
-          }
-        }
-        // 完成后：清理 streamMap + 从 DB 重新加载权威消息（重试等落库完成）
-        clearStream(convId)
-        if (convIdRef.current === convId) setBgGenerating(false)
-        // [DONE] 可能先于落库到达 → 轮询 DB 直到出现 assistant 回复（≤10s）
-        for (let attempt = 0; attempt < 10 && convIdRef.current === convId; attempt++) {
+        const { generating } = await listGenerating()
+        if (!alive) return
+        setGeneratingIds(new Set(generating.map((g) => g.conversation_id)))
+      } catch {
+        // 静默：轮询失败保持上次状态
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh() // 页面不可见时暂停轮询
+    }, 5000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [])
+  // 某会话是否正在执行：后端集合 ∪ 当前本地流（即时，避免 5s 轮询延迟）
+  const isExecuting = (id: string) => generatingIds.has(id) || (streaming && convIdRef.current === id)
+
+  // 权威兜底：问后端"该会话是否在生成"，是则轮询 DB 直到 assistant 回复出现（最长 ~15min）
+  const fallbackWatch = useCallback(
+    async (convId: string) => {
+      try {
+        const { generating } = await listGenerating()
+        if (!generating.some((g) => g.conversation_id === convId)) return
+      } catch {
+        return
+      }
+      if (convIdRef.current === convId) setBgGenerating(true)
+      for (let attempt = 0; attempt < 450; attempt++) {
+        try {
           const { messages: msgs } = await listMessages(convId)
           const lastMsg = msgs[msgs.length - 1]
           if (lastMsg?.role === 'assistant' && (lastMsg.content || lastMsg.ask)) {
@@ -326,25 +276,42 @@ export default function ChatPage() {
             }
             break
           }
-          await new Promise((r) => setTimeout(r, 1000))
+        } catch {
+          // 单次失败继续轮询
         }
-      } catch {
-        clearStream(convId)
-        if (convIdRef.current === convId) setBgGenerating(false)
+        await new Promise((r) => setTimeout(r, 2000))
       }
+      if (convIdRef.current === convId) setBgGenerating(false)
     },
-    [clearStream, setMessages],
+    [setMessages],
   )
 
-  // 停止生成：本地停止展示 + 显式通知后端终止后台任务（生成已与连接解耦）
+  // 打开会话后的恢复：优先真续流；无断点状态/续流失败 → 权威兜底。
+  // 两者均幂等（无断点状态立即返回 / 不在生成列表立即返回），
+  // 因此不做"已恢复"去重——生成中切走再切回也需重新恢复展示。
+  const restoreStream = useCallback(
+    async (convId: string) => {
+      const resumed = await streamResume({
+        convId,
+        listMessages: async (cid) => (await listMessages(cid)).messages,
+        toMessages: historyToMessages,
+        // 断点状态缺失时退化为纯重放续流（meta 曾回传过该会话的 streamId）
+        fallbackStreamId: streamMapRef.current[convId],
+      })
+      if (!resumed) await fallbackWatch(convId)
+    },
+    [streamResume, fallbackWatch],
+  )
+
+  // 停止生成：本地断流（清断点）+ 显式通知后端终止后台任务（唯一真正的"断开"）
   const stopGeneration = useCallback(() => {
     const convID = convIdRef.current
-    stop()
+    streamStop()
     if (convID) {
       void stopChat(convID).catch(() => {})
       clearStream(convID)
     }
-  }, [stop, clearStream])
+  }, [streamStop, clearStream])
 
   // ---- 初始化（含刷新恢复：会话 + 草稿）----
   useEffect(() => {
@@ -372,8 +339,9 @@ export default function ChatPage() {
 
   const openConversation = useCallback(
     async (id: string) => {
-      // 终止本地流展示（后端 genCtx 不受影响，继续后台生成并落库）
-      if (streaming) stop()
+      // 切换会话 ≠ 断开：仅暂停本地流（保留断点，切回可续流）；后端 genCtx 继续生成并落库
+      if (streaming) streamStop(true)
+      setBgGenerating(false) // 打开会话重置横幅：不继承上一个会话的"后台生成中"状态
       stickRef.current = true // 打开会话 → 跟随到底
       setActiveId(id)
       setError('')
@@ -388,24 +356,14 @@ export default function ChatPage() {
           const el = scrollRef.current
           if (el) el.scrollTop = el.scrollHeight
         })
+        // 恢复：优先真续流；无断点状态/续流失败 → 权威兜底轮询
+        void restoreStream(id)
       } catch (err) {
         setError(err instanceof Error ? err.message : '加载消息失败')
       }
     },
-    [conversations, streaming, stop, setMessages],
+    [conversations, streaming, streamStop, setMessages, restoreStream, setBgGenerating],
   )
-
-  // 切换/恢复：若有活跃流则订阅重放（完成信号），收到 [DONE] 后从 DB 拉权威消息
-  useEffect(() => {
-    if (!activeId) return
-    const sid = streamMapRef.current[activeId]
-    if (sid) {
-      void watchGeneration(activeId, sid)
-      return
-    }
-    // 无活跃流：从 DB 加载历史（openConversation 已处理，此处兜底）
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, watchGeneration])
 
   // 刷新后自动恢复上次打开的会话（等会话列表真正加载完成再消费，避免竞态）
   useEffect(() => {
@@ -439,6 +397,7 @@ export default function ChatPage() {
 
   const newChat = useCallback(() => {
     if (streaming) stopGeneration()
+    setBgGenerating(false) // 新对话重置横幅（不继承任何会话的"后台生成中"残留）
     stickRef.current = true // 新对话 → 跟随到底
     setActiveId(null)
     setError('')
@@ -447,29 +406,12 @@ export default function ChatPage() {
     setMessages([])
     setPendingFiles([])
     modeRef.current = draftMode
-  }, [streaming, stop, setMessages, draftMode])
+  }, [streaming, stopGeneration, setMessages, draftMode, setBgGenerating])
 
-  // ---- meta/done 数据 part 消费（会话 id 回传 / 标题刷新）----
+  // 流结束/出错后解锁发送（chatStatus 异步更新，配合 sendingRef 同步锁）
   useEffect(() => {
-    for (const m of messages) {
-      for (const p of m.parts as unknown as { type: string; data?: Record<string, unknown> }[]) {
-        if (p.type === 'data-ccnu' && p.data?.type === 'meta' && typeof p.data.conversation_id === 'string') {
-          const cid = p.data.conversation_id
-          convIdRef.current = cid
-          setActiveId((prev) => (prev && prev !== cid ? prev : cid))
-          void refreshConversations()
-        } else if (p.type === 'data-ccnu' && p.data?.type === 'done') {
-          void refreshConversations()
-        }
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages])
-
-  // 流结束/出错后解锁发送（status 异步更新，配合 sendingRef 同步锁）
-  useEffect(() => {
-    if (status === 'ready' || status === 'error') sendingRef.current = false
-  }, [status])
+    if (chatStatus === 'ready' || chatStatus === 'error') sendingRef.current = false
+  }, [chatStatus])
 
   // ---- 提问状态（从最后一条助手消息的 ask part 派生）----
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
@@ -484,7 +426,15 @@ export default function ChatPage() {
     if (streaming || sendingRef.current) return
     sendingRef.current = true
     attachRef.current = []
-    void sendMessage({ text: option })
+    void streamSend({
+      text: option,
+      displayText: option,
+      convId: convIdRef.current,
+      mode: modeRef.current,
+      attachments: [],
+      listMessages: async (cid) => (await listMessages(cid)).messages,
+      toMessages: historyToMessages,
+    })
   }
 
   // ---- 附件 ----
@@ -499,10 +449,22 @@ export default function ChatPage() {
       if (pendingFiles.some((p) => p.name === f.name && p.size === f.size)) continue
       ok.push(f)
     }
-    if (ok.length > 0) setPendingFiles((prev) => [...prev, ...ok])
+    if (ok.length > 0) {
+      setPendingFiles((prev) => [...prev, ...ok])
+      setAttachStates((prev) => {
+        const next = { ...prev }
+        for (const f of ok) next[fileKey(f)] = { status: 'pending' }
+        return next
+      })
+    }
   }
   function removeFile(name: string, size: number) {
     setPendingFiles((prev) => prev.filter((f) => !(f.name === name && f.size === size)))
+    setAttachStates((prev) => {
+      const next = { ...prev }
+      delete next[`${name}-${size}`]
+      return next
+    })
   }
 
   // ---- 发送 ----
@@ -514,14 +476,21 @@ export default function ChatPage() {
     stickRef.current = true // 主动发送 → 恢复贴底跟随
 
     let attachIds: string[] = []
-    const failed: string[] = []
+    const failed: { key: string; file?: File; error: string }[] = []
+    const failedFiles: File[] = []
     if (pendingFiles.length > 0) {
       setUploading(true)
       try {
         const results = await uploadChatAttachments(pendingFiles)
         for (const r of results) {
-          if (r.status === 'ready' && r.doc_id) attachIds.push(r.doc_id)
-          else if (r.error) failed.push(`${r.filename}：${r.error}`)
+          const f = pendingFiles.find((x) => x.name === r.filename)
+          if (r.status === 'ready' && r.doc_id) {
+            attachIds.push(r.doc_id)
+          } else {
+            const errMsg = r.error || '解析失败'
+            failed.push({ key: `${r.filename}-${f?.size ?? 0}`, file: f, error: errMsg })
+            if (f) failedFiles.push(f)
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : '附件上传失败')
@@ -538,23 +507,90 @@ export default function ChatPage() {
     setInput('')
     if (taRef.current) taRef.current.style.height = 'auto' // 发送后收起输入框
     setSlashMenu(false)
-    setError('')
 
-    // 展示文本：原文 + 附件标记（适配层会剥离 📎 行）
-    let display = content
-    if (attachIds.length > 0) {
-      const names = pendingFiles.map((f) => f.name)
-      if (names.length > 0) display = (display ? display + '\n\n' : '') + names.map((n) => `📎 ${n}`).join('\n')
+    // 失败附件保留在输入区（error 卡片可重试/移除）；成功附件进入消息
+    const sentFiles = pendingFiles.filter((f) => !failedFiles.some((x) => x.name === f.name && x.size === f.size))
+    setPendingFiles(failedFiles)
+    setAttachStates((prev) => {
+      const next = { ...prev }
+      for (const f2 of failed) next[f2.key] = { status: 'error', error: f2.error }
+      return next
+    })
+
+    // 全失败且无输入：不发送（解析失败的卡片留在输入区等待重试/移除）
+    if (!content && attachIds.length === 0) {
+      if (failed.length > 0) setError(`附件解析失败：${failed.map((x) => x.file?.name ?? x.key).join('；')}（可点击重试或移除）`)
+      sendingRef.current = false
+      return
     }
-    setPendingFiles([])
-    if (failed.length > 0) setError(`部分附件失败：${failed.join('；')}`)
+
+    // 展示文本：原文 + 成功附件标记（适配层会剥离 📎 行）
+    let display = content
+    if (attachIds.length > 0 && sentFiles.length > 0) {
+      display = (display ? display + '\n\n' : '') + sentFiles.map((f) => `📎 ${f.name}`).join('\n')
+    }
+    if (failed.length > 0) setError(`部分附件解析失败：${failed.map((x) => x.file?.name ?? x.key).join('；')}（可点击重试或移除）`)
     stickRef.current = true
-    void sendMessage({ text: display })
+    void streamSend({
+      text: content || (attachIds.length > 0 ? '请阅读我上传的文件并给出简要总结。' : ''),
+      displayText: display,
+      convId: convIdRef.current,
+      mode: modeRef.current,
+      attachments: attachIds,
+      listMessages: async (cid) => (await listMessages(cid)).messages,
+      toMessages: historyToMessages,
+    })
     // 主动发送 → 强制滚到底（不依赖滚动事件时序）
     requestAnimationFrame(() => {
       const el = scrollRef.current
       if (el) el.scrollTop = el.scrollHeight
     })
+  }
+
+  // 附件解析失败重试：重新上传该文件 → 成功后直接作为消息发送（附当前输入或默认指令）
+  async function retryFile(f: File) {
+    if (uploading || streaming || sendingRef.current) return
+    const key = fileKey(f)
+    sendingRef.current = true
+    setUploading(true)
+    setAttachStates((prev) => {
+      const next = { ...prev }
+      delete next[key] // 先移除 error 态（卡片切换为解析中动效）
+      return next
+    })
+    try {
+      const results = await uploadChatAttachments([f])
+      const r = results[0]
+      if (r.status === 'ready' && r.doc_id) {
+        setPendingFiles((prev) => prev.filter((x) => fileKey(x) !== key))
+        setAttachStates((prev) => {
+          const n = { ...prev }
+          delete n[key]
+          return n
+        })
+        const text = input.trim() || '请阅读我上传的文件并给出简要总结。'
+        setInput('')
+        setError('')
+        stickRef.current = true
+        void streamSend({
+          text,
+          displayText: text,
+          convId: convIdRef.current,
+          mode: activeConv ? activeConv.mode : draftMode,
+          attachments: [r.doc_id],
+          listMessages: async (cid) => (await listMessages(cid)).messages,
+          toMessages: historyToMessages,
+        })
+        void refreshConversations()
+      } else {
+        setAttachStates((prev) => ({ ...prev, [key]: { status: 'error', error: r.error || '解析失败' } }))
+      }
+    } catch (err) {
+      setAttachStates((prev) => ({ ...prev, [key]: { status: 'error', error: err instanceof Error ? err.message : '上传失败' } }))
+    } finally {
+      sendingRef.current = false
+      setUploading(false)
+    }
   }
 
   // ---- 会话操作 ----
@@ -638,7 +674,7 @@ export default function ChatPage() {
       return
     }
     el.scrollTop = el.scrollHeight // 瞬时定位，避免流式 chunk 的 smooth 抖动
-  }, [messages, status])
+  }, [messages, chatStatus])
 
   // ---- 渲染 ----
   return (
@@ -699,6 +735,7 @@ export default function ChatPage() {
                       })()}
                     </span>
                     <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                    {isExecuting(c.id) && <GeneratingIndicator />}
                     <span className="hidden shrink-0 gap-0.5 group-hover:flex">
                       <button
                         className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -971,7 +1008,7 @@ export default function ChatPage() {
           )}
           {(chatError || error) && (
             <div className="mt-3 flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              <span>⚠ {chatError?.message ?? error}</span>
+              <span>⚠ {chatError || error}</span>
               <button onClick={() => setError('')}>✕</button>
             </div>
           )}          <div ref={bottomRef} />
@@ -1036,26 +1073,33 @@ export default function ChatPage() {
                   <Square className="size-3.5" />
                 </Button>
               ) : (
-                <Button size="icon" onClick={() => void handleSend()} disabled={!input.trim() && pendingFiles.length === 0} title="发送">
-                  <Send className="size-4" />
+                <Button
+                  size="icon"
+                  onClick={() => void handleSend()}
+                  disabled={(!input.trim() && pendingFiles.length === 0) || uploading}
+                  title={uploading ? '文件解析中…' : '发送'}
+                >
+                  {uploading ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
                 </Button>
               )}
             </div>
             {(pendingFiles.length > 0 || uploading) && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {pendingFiles.map((f) => (
-                  <span key={`${f.name}-${f.size}`} className="flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs">
-                    <FileIcon name={f.name} mime={mimeOf(f.name)} size={14} />
-                    <span className="max-w-40 truncate">{f.name}</span>
-                    <span className="text-muted-foreground">{fmtFileSize(f.size)}</span>
-                    {!streaming && !uploading && (
-                      <button className="text-muted-foreground hover:text-destructive" onClick={() => removeFile(f.name, f.size)}>
-                        ✕
-                      </button>
-                    )}
-                  </span>
-                ))}
-                {uploading && <span className="text-xs text-muted-foreground">⏳ 解析上传中…</span>}
+              <div className="group mt-2 flex flex-wrap gap-2">
+                {pendingFiles.map((f) => {
+                  const key = fileKey(f)
+                  const st = attachStates[key]
+                  return (
+                    <FileCard
+                      key={key}
+                      name={f.name}
+                      size={f.size}
+                      state={uploading ? 'uploading' : st?.status === 'error' ? 'error' : 'pending'}
+                      error={st?.error}
+                      onRemove={() => removeFile(f.name, f.size)}
+                      onRetry={() => void retryFile(f)}
+                    />
+                  )
+                })}
               </div>
             )}
             <p className="mt-1.5 text-center text-[11px] text-muted-foreground">
@@ -1115,6 +1159,7 @@ export default function ChatPage() {
                       })()}
                     </span>
                     <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                    {isExecuting(c.id) && <GeneratingIndicator />}
                     <span className="flex shrink-0 gap-1">
                       <button
                         className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -1164,7 +1209,7 @@ function modePillClass(mode: Mode): string {
   }
 }
 
-function hasAnyPart(m: UIMessage | undefined): boolean {
+function hasAnyPart(m: ChatStreamMessage | undefined): boolean {
   return !!m && m.parts.length > 0
 }
 
@@ -1174,7 +1219,7 @@ function MessageRow({
   userName,
   onAnswer,
 }: {
-  m: UIMessage
+  m: ChatStreamMessage
   userName: string
   onAnswer: (option: string) => void
 }) {

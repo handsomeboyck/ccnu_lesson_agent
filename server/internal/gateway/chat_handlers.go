@@ -185,12 +185,44 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	// 流缓冲（Resume Streams）：断线重连可从此 streamId 重放
+	// 流缓冲（Resume Streams）：断线重连可从此 streamId 重放。
+	// 生命周期：生成期间保留（不覆盖、不删除，保证刷新后断点续流可重放完整历史）；
+	// 生成结束（done）后再宽限 10 分钟供重放，随后从注册表移除。
 	streamID, streamBuf := c.streams.create()
-	defer func() { streamBuf.close(); time.AfterFunc(5*time.Minute, func() { c.streams.remove(streamID) }) }()
-	buf := func(m map[string]any) { writeUIChunk(w, m); streamBuf.append(mustMarshal(m)) }
-	bufD := func(m map[string]any) { writeUIData(w, m); streamBuf.append(mustMarshal(m)) }
-	bufRaw := func(v any) { writeUIChunk(w, v); b, _ := json.Marshal(v); streamBuf.append(b) }
+	defer func() {
+		streamBuf.close()
+		time.AfterFunc(10*time.Minute, func() { c.streams.remove(streamID) })
+	}()
+	connected := true // 客户端是否仍在连接（断开后停止写 SSE，但生成继续消费事件并落库）
+	// buf/bufD/bufRaw：每个 chunk 先入缓冲（append 注入全局单调 seq），网络帧与缓冲共用同一 JSON。
+	// 关键：网络写受 connected 门控——客户端断开后不再写已断开的连接（避免 TCP 缓冲写阻塞导致
+	// handler 卡住、genCancel 残留，进而让 /v1/chat/generating 误报"仍在生成"）；
+	// 缓冲始终 append（生成内容完整保留，供刷新后的断点续流重放）。
+	buf := func(m map[string]any) {
+		framed := streamBuf.append(mustMarshal(m))
+		if connected {
+			writeUIChunk(w, framed)
+		}
+	}
+	bufD := func(m map[string]any) {
+		framed := streamBuf.append(mustMarshal(map[string]any{"type": "data-ccnu", "data": m}))
+		if connected {
+			writeUIChunk(w, framed)
+		}
+	}
+	bufRaw := func(v any) {
+		if s, ok := v.(string); ok && s == "DONE" {
+			// [DONE] 终止符不入缓冲（重放端点结束时会自行发送）
+			if connected {
+				writeUIChunk(w, "DONE")
+			}
+			return
+		}
+		framed := streamBuf.append(mustMarshal(v))
+		if connected {
+			writeUIChunk(w, framed)
+		}
+	}
 
 	// 首个 chunk：消息开始（messageId 每次流唯一，前端用作消息 key）
 	buf(map[string]any{"type": "start", "messageId": streamMsgID()})
@@ -243,7 +275,6 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	reasoningEnded := false
 	var reasoningSb strings.Builder       // 思考链全文（持久化，历史回看）
 	errorMsg := ""
-	connected := true // 客户端是否仍在连接（断开后停止写 SSE，但生成继续消费事件）
 	const textPartID = "text"  // 单流内文本 part 的固定 id（start/delta/end 关联）
 	const reasoningPartID = "r1" // 单流内思考 part 的固定 id
 
@@ -258,6 +289,10 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for ev := range evCh {
+		// 连接断开检查提前：断开后立即停止网络写（buf 门控），生成继续消费事件并落库
+		if r.Context().Err() != nil {
+			connected = false
+		}
 		switch ev.Kind {
 		case agent.EventReasoning:
 			reasoningSb.WriteString(ev.Content)
@@ -380,9 +415,6 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 			usage = ev.Usage
 		case agent.EventError:
 			errorMsg = ev.Err.Error()
-		}
-		if r.Context().Err() != nil {
-			connected = false // 客户端断开：停止写 SSE，但生成继续（后台跑完并落库）
 		}
 	}
 

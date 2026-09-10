@@ -28,4 +28,10 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# --- runtime dirs & scratch ---
 data_export/
+artifacts/
+uploads/
+web/.tools-tailwind-compiled.css
+web/ssr-bundle.mjs
+web/src/index.css.bak
