@@ -30,7 +30,7 @@
 |---|---|---|
 | 前端 | React 19 + Vite 8 + TypeScript | SPA（`web/`）；react-markdown + remark-gfm + **KaTeX（数学公式）** 渲染、Zustand 状态、React Router；移动端底部 Tab + 响应式 |
 | 后端 | Go 1.27（`net/http` 1.22+ 方法路由），stdlib 为主 + pgx 驱动 | Agent 服务端；`server/` |
-| 实时通信 | SSE（Server-Sent Events） | 事件协议见 §6.2 |
+| 实时通信 | SSE（Server-Sent Events） | 帧带全局单调 `seq` + 断点续流重放端点（`/v1/chat/stream/{id}`）；事件协议见 §6.2 |
 | LLM 接入 | OpenAI Chat Completions + function calling | `OPENAI_*` 三件套配置，兼容 DeepSeek/OpenAI/通义等；本地当前启用 DeepSeek `deepseek-v4-flash` + `reasoning_effort=medium`；无 key 时 Demo 模式可无网联调 |
 | Embedding | （规划）OpenAI Embedding API 1536 维 | 供 M2 RAG 使用 |
 | 数据库 | PostgreSQL（pgx/v5） | 生产权威数据源；本地未配 `DATABASE_URL` 时回退内存 store（仅开发演示） |
@@ -108,7 +108,9 @@ User: /quiz 3道一元二次方程困难题
 
 **基础能力**：
 - **账号**：登录/注册页（双栏品牌版：华师蓝渐变品牌区 + 表单卡）；密码框**默认隐藏、可点 👁️/🙈 切换明文**；JWT access 自动附带，401 用 refresh 静默续期后重试一次，失败跳登录；路由守卫（admin 专属路由 RequireRole）。
-- **多轮对话**：会话列表/新建/重命名/删除/续载；按「今天/昨天/更早」分组 + 模式图标；消息即时落库，刷新可恢复；防重复提交 + 停止生成（Abort）。
+- **多轮对话**：会话列表/新建/重命名/删除/续载；按「今天/昨天/更早」分组 + 模式图标；消息即时落库；**断点续流**（刷新/切换后已生成内容立即续上，见 §4.9）；防重复提交 + 停止生成（Abort）。
+- **欢迎引导（物理课程与教学概论语境）**：新对话欢迎区四张快捷卡片 `/diagnose 诊断教学设计` · `/theory 最近发展区设计教学过程` · `/quiz 围绕电场强度概念出 2 个促进思维的问题` · `/search 实验教学中运用物理教学模式和方法`（点击填入输入框）。
+- **侧栏「正在执行中」动画**：5s 轮询 `/v1/chat/generating` + 本地当前流即时并入 → 会话条目标题右侧旋转 spinner（`GeneratingIndicator`）；完成/停止自动消失。
 - **错误与边界**：登录失效、断线、异常均有反馈。
 
 **交互能力**：
@@ -183,7 +185,10 @@ version: 1.0.0
 ### 4.4 文件知识库（用户级资料库）
 
 - 上传：`POST /v1/library/files`（multipart，pdf/docx/xlsx/txt/md/csv，≤30MB）→ 异步解析 `parsing→ready|failed`。
-- 解析：`internal/ingest` 纯 Go —— PDF(ledongthuc) / DOCX(标准库 zip+xml，兼容两种分隔符) / XLSX(excelize) / 文本；.doc 老格式提示转 .docx。
+- 解析（`internal/ingest`，**沙箱优先 + Go 回退**）：
+  - 沙箱通道（`ingest/sandbox.go`，包级注入 `ingest.SandboxParse`，main.go 装配）：codex 沙箱执行脚本，**MarkItDown**（微软开源，pdf/docx/pptx/xls/xlsx 统一转 Markdown）优先、**PyMuPDF** 兜底（中文 CID 字体 PDF 提取可靠，修复 ledongthuc 乱码问题）；结果经 `/out/extract.md` 产物通道回传（规避 stdout 64KB 截断）；
+  - 本地回退：纯 Go —— PDF(ledongthuc) / DOCX(标准库 zip+xml) / XLSX(excelize) / XLS(extrame) / 文本；.doc 走 antiword；
+  - 兜底检测 `looksReadable`：无效 UTF-8 / 大量 U+FFFD 视为不可读 → 明确失败提示（避免静默入库乱码），已入库乱码文档需重新上传。
 - 存储：`documents` + `document_chunks`（按 800 字/重叠 120 分块）。
 - 检索：`SearchChunks`（Postgres ILIKE；中文 2-gram 分词；内存版同语义）→ knowledge_retrieve 把命中片段带出处注入上下文，模型引用作答。
 - 升级点：检索层已抽象，后续可换 pgvector + embedding（1536 维）。
@@ -192,7 +197,8 @@ version: 1.0.0
 
 **场景**：学生在对话中直接附加文件（pdf/docx/xlsx/txt/md/csv，每次 ≤5 个、单个 ≤30MB），AI 读取内容作答，且**同会话后续追问无需重传**。
 
-- 前端：输入框 📎 多选 + **拖拽到消息区**；选中文件以 chips 展示（类型图标/名/大小/可删）；上传为**同步解析**——`POST /v1/chat/attachments`（multipart `files`，可多文件）解析完成才返回 `doc_id`（`status=ready`，无 OCR；不做"解析未完就对话"的竞态）。
+- 前端：输入框 📎 多选 + **拖拽到消息区**；选中文件以**文件卡片**展示（`FileCard`，对标 DeepSeek Chat：类型图标/文件名/大写扩展名/大小/可删）；上传为**同步解析**——`POST /v1/chat/attachments`（multipart `files`，可多文件）解析完成才返回 `doc_id`（`status=ready`，无 OCR；不做"解析未完就对话"的竞态）。
+- **解析等待期动效**（解析到发送之间的延迟反馈）：卡片图标位 → 旋转 spinner + 状态行「解析中...」+ 底部**不确定进度条**（滑动动画）；解析完成自动恢复；**失败卡片**（「上传失败」+ 原因）保留在输入区可**点击重试**（重传成功后直接作为消息发送）或移除；全失败且无文字输入时不发空消息；发送按钮解析中禁用并显示 spinner（`title="文件解析中…"`）。
 - 存储：附件与资料库上传**同库**（自动成为用户资料库文件，可复用/删除）；`conversation_attachments(conv_id, doc_id)` 记录"会话用过哪些文件"（迁移 0006），会话删除级联解绑、**文件保留在资料库**。
 - 对话注入（chat handler）：
   - **首轮**（本条带 attachments）：把文件正文（docFullText 由 document_chunks 重组，每文件 ≤4000 字、单轮 ≤12000 字）**全量注入**发送给模型的那条 user 消息（存储仍保持原文，仅模型可见富文本）；
@@ -288,6 +294,18 @@ version: 1.0.0
 - `Dockerfile.codex`：sandbox + worker 双 target；compose `codex`/`codex-sandbox` 服务
 - 前端：对话工具卡片产物预览 + `/artifacts` 产物库页 + 历史消息产物恢复
 
+### 4.9 断点续流（真续流 · 生成中断开双侧无缝衔接）
+
+**断开语义（共识）**：刷新 / 切换会话 / 断网 **≠ 断开**——生成继续（缓冲/落库/可续流），回来时续流恢复（已生成部分立即显示并继续流式，无「后台生成中」横幅）；**只有手动「停止」才是断开**（终止生成、半截落库、清断点）。实现为三层：
+
+1. **后端流缓冲（`gateway/stream_buffer.go`）**：每个主链路 chunk 字节级注入**全局单调 `seq`**（`buf/bufD/bufRaw`，缓冲与网络帧共用同一 JSON，AI SDK 忽略未知字段）；生成期间**不覆盖不裁剪**（刷新可重放完整历史），`done` 后宽限 10 分钟供重放，随后从注册表移除（上限 20000 帧、尾部保留 4096）。**网络写受 `connected` 门控**：客户端断连后不再写已断开的 TCP 连接（防写阻塞 → handler 卡死 → `genCancel` 残留 → `/v1/chat/generating` 误报），缓冲始终 append、生成/落库照常。
+2. **重放端点 `GET /v1/chat/stream/{streamId}?since=N`**（`stream_replay.go`）：返回 `X-Stream-Min-Seq`/`X-Stream-From-Seq` 头；生成期间**长轮询**（50ms 间隔）随生成推送新帧，生成结束补发 `[DONE]`；gap 检测（since < minSeq → 续不上）由前端降级权威兜底。
+3. **前端引擎（`web/src/lib/useChatStream.ts` + `useStreamResume.ts` + `streamMerge.ts`）**：自研统一流式引擎（发送/续流/兜底三路径合一）；`seq` 去重 + 80ms 渲染节流 + 300ms 断点节流持久化（`ccnu-stream-resume`：convId/streamId/lastSeq/parts）；`stop(keepResume)` 分离——切换会话保留断点、手动停止清断点；网络错误保留断点；`resume` 支持 `fallbackStreamId`（断点缺失但有 streamId 时纯重放 since=0 重建）；渲染走 `streamMerge.ts` 的 parts 合并器（与 AI SDK parts 形状兼容，卡片组件零改动）。
+
+**兜底**：续流不可用（缓冲过期/服务重启）→ `fallbackWatch`（`/v1/chat/generating` + 2s 轮询 DB 等完成，≤450 次）；`openConversation`/`newChat` 重置「后台生成中」横幅（横幅只在该会话确认生成中且无法续流时出现）。
+
+**工程落点**：`gateway/stream_buffer.go`、`gateway/stream_replay.go`、`gateway/chat_handlers.go`（connected 门控）；`web/src/lib/{useChatStream,useStreamResume,streamMerge}.ts`；`web/src/pages/ChatPage.tsx`（恢复/横幅/执行中轮询）；验证 `web/RESUME_VERIFY.md` + `test-resume-*.mjs`。
+
 ---
 
 ## 5. 数据模型（PostgreSQL）
@@ -338,24 +356,27 @@ metric_events(id, ts, kind(chat|tool|codex), mode, status, skill, prompt_tokens,
 | GET | `/v1/monitor/overview` · `/health` · `/conversations…` | 监控/审计（**仅 admin**，见 §4.6） |
 | GET | `/healthz` | 健康检查 |
 
-### 6.2 流式协议（POST /v1/chat，AI SDK UI message stream v1）
-> 传输：SSE 帧 `data: {json}\n\n`，响应头 `x-vercel-ai-ui-message-stream: v1`，
-> 收尾 `data: [DONE]`；前端由 Vercel AI SDK v7 `useChat` + `DefaultChatTransport` 消费
-> （请求经 `prepareSendMessagesRequest` 适配为 `{conversation_id, content, mode}`）。
-> chunk 词汇表（zod 校验）：start / text-start·text-delta·text-end / tool-input-start·
-> tool-input-available·tool-output-available / data-ccnu（自定义载荷）/ finish / error。
+### 6.2 流式协议（POST /v1/chat，AI SDK UI message stream v1 兼容）
+
+> 传输：SSE 帧 `data: {json}\n\n`，响应头 `x-vercel-ai-ui-message-stream: v1`，收尾 `data: [DONE]`。
+> **每个主链路帧带全局单调 `seq`**（字节级注入，AI SDK 忽略未知字段）——断点续流去重/重放的基础（见 §4.9）。
+> 前端由自研流式引擎 `useChatStream` 消费（不再依赖 SDK useChat/DefaultChatTransport；parts 合并走 `streamMerge.ts`）。
 
 | chunk type | 字段 | 说明 |
 |---|---|---|
-| `start` | messageId | 流开始（新会话时返回 conversation_id） |
-| `text-start` / `text-delta` / `text-end` | id, delta | 流式文本三件套（可扩展 reasoning-* 展示思考） |
-| `tool-input-start` | toolCallId, toolName | Skill 开始（工具卡片运行态） |
-| `tool-input-available` | toolCallId, toolName, input, providerExecuted | 参数就绪（服务端已执行=true） |
-| `tool-output-available` | toolCallId, output{summary,artifacts?} | Skill 完成（卡片完成态 + 产物清单） |
-| `data-ccnu` | data{type: meta/tool_call/tool_result/ask/done} | 自定义旁路载荷 |
-| `finish` | finishReason (stop/error) | 流结束 |
-| `error` | errorText | 错误（随后 [DONE]） |
+| `start` | messageId, seq | 流开始 |
+| `reasoning-start/delta/end` | id, delta, seq | 思考链三件套（可折叠展示） |
+| `text-start` / `text-delta` / `text-end` | id, delta, seq | 流式文本三件套 |
+| `tool-input-start` | toolCallId, toolName, seq | Skill 开始（工具卡片运行态） |
+| `tool-input-available` | toolCallId, toolName, input, providerExecuted, seq | 参数就绪（服务端已执行=true） |
+| `tool-output-available` | toolCallId, output{summary,artifacts?}, seq | Skill 完成（卡片完成态 + 产物清单） |
+| `data-ccnu` | data{type: meta/done…}, seq | 自定义旁路载荷（meta 含 conversation_id + streamId） |
+| `finish` | finishReason (stop/error), seq | 流结束 |
+| `[DONE]` | — | 终止符（不入缓冲；重放端点结束自行补发） |
 
+> 续流重放：`GET /v1/chat/stream/{streamId}?since=N`（返回 `X-Stream-Min-Seq`/`X-Stream-From-Seq`），
+> 刷新/切回时前端由此补拉断点后的帧并继续长轮询直到 `[DONE]`（详见 §4.9）。
+>
 > 历史回看：`GET /v1/conversations/{id}/messages` 的 assistant 消息带
 > `artifacts`（产物摘要）与 `tool_steps`（工具执行轨迹 [{call_id,name,summary,duration_ms,artifacts}]），
 > 由前端渲染为持久化工具卡片。
@@ -403,22 +424,26 @@ sfh_workplace/（= ccnu_lesson_agent）
 ├── web/                    # React 19 + Vite + TS
 │   └── src/{pages(chat,skills,library,artifacts,login,register,monitor),components(PasswordField,FileIcon,HistoryArtifacts),api,store,lib,types.ts,index.css}
 └── server/                 # Go 1.27
-    ├── cmd/api/main.go     # 入口：配置/存储/SKILL 加载/沙箱健康轮询/静态托管
+    ├── cmd/api/main.go     # 入口：配置/存储/SKILL 加载/沙箱健康轮询/静态托管/装配 ingest.SandboxParse
     ├── cmd/codex/main.go   # codex-worker（+sysmetrics_linux/other.go：/metrics/sys 宿主指标）
     ├── internal/
     │   ├── agent/          # 工具循环 + /命令 + ask 中断 + 产物旁路 + SystemPrompt(附件规则)
     │   ├── auth/           # JWT/PBKDF2/注册登录刷新 + requireRole
-    │   ├── codex/          # 沙箱 Runner(含 pptx→pdf 转换) + HTTP Client(Health/SysMetrics)
-    │   ├── config/ ingest/ model/     # 配置 / 文件解析 / LLM Provider
+    │   ├── codex/          # 沙箱 Runner(含 pptx→pdf 转换) + HTTP Client(Health/SysMetrics/Exec)
+    │   ├── config/ ingest/ model/     # 配置 / 文件解析（sandbox.go 沙箱通道+Go 回退）/ LLM Provider
     │   ├── gateway/        # REST+SSE：conv/library/artifact/skill/chat(含附件注入)/
-    │   │                   #   chat_attachments(上传+多轮检索) / monitor_handlers(监控+审计+导出)
+    │   │                   #   chat_attachments(上传+多轮检索) / monitor_handlers(监控+审计+导出) /
+    │   │                   #   stream_buffer(seq 缓冲) / stream_replay(续流重放)
     │   ├── skill/          # 平台原语 + SKILL.md 文档技能 + execute_code
     │   └── store/          # Store 接口 + memory + postgres（含 metric/conversation_attachments）
     ├── skills/             # ★ SKILL.md 文档技能目录（运行时热加载）
-    ├── migrations/         # SQL 迁移 0001~0006
+    ├── migrations/         # SQL 迁移 0001~0010
     ├── .env(.example)
     └── go.mod
 ```
+
+**前端新增组件/模块**：`components/FileCard.tsx`（附件解析动效卡片）、`components/GeneratingIndicator.tsx`（侧栏执行中 spinner）、
+`lib/{useChatStream,useStreamResume,streamMerge}.ts`（断点续流引擎）；`RESUME_VERIFY.md`（续流协议验证文档）+ `test-resume-*.mjs` 等测试工具。
 
 ---
 
@@ -440,6 +465,10 @@ sfh_workplace/（= ccnu_lesson_agent）
 | **消息级附件** | 对话 📎/拖拽上传多文件同步解析；首轮全文注入 + 会话级多轮记忆检索（conversation_attachments） | ✅ 完成 |
 | **监控/审计** | `/monitor`（admin）：Agent 指标+宿主/容器+PG+磁盘告警；全站对话审计与 zip/单会话导出 | ✅ 完成 |
 | **M4 上线** | Postgres + Docker + 阿里云 ECS（https://www.ccnu.chat）；TLS；磁盘清理与日志限容 | ✅ 完成（在线运行） |
+| **断点续流** | 三层真续流（seq 流缓冲 + 重放端点长轮询 + 前端续流引擎）；断开语义（刷新/切换≠断开，仅手动停止=断开）；侧栏执行中动画 | ✅ 完成 |
+| **文档解析沙箱化** | MarkItDown/PyMuPDF 成熟解析优先（中文 PDF 可靠）+ Go 回退 + 乱码兜底检测 | ✅ 完成 |
+| **附件解析动效** | FileCard（spinner + 不确定进度条 + 失败重试，对标 DeepSeek Chat） | ✅ 完成 |
+| **引导文案物理化** | /diagnose /theory /quiz /search 四张欢迎引导卡片（物理课程与教学概论语境） | ✅ 完成 |
 
 分支约定：`master` 稳定分支仅合入已验收版本；日常开发在 `develop`。
 
@@ -455,6 +484,8 @@ sfh_workplace/（= ccnu_lesson_agent）
   支持 docx/pptx/xlsx/pdf 生成（LibreOffice pptx→pdf 预览）；并发=全局 2（任务级隔离、无用户级公平队列）。
 - ✅ 资料库：用户级文件知识库（上传解析 → 分块 → 关键词检索 → 引用注入）；**消息级附件复用同一解析与库**。
 - ✅ 附件多轮记忆：会话关联文件（conversation_attachments）；首轮全文注入、后续自动检索；强指令避免误触发 knowledge_retrieve。
+- ✅ **断点续流**：刷新/切换/断网 ≠ 断开（生成继续、回来续流恢复、无横幅）；仅手动停止=断开（终止+半截落库+清断点）；seq 单调缓冲 + 重放端点 + 前端自研引擎三层。
+- ✅ **文档解析**：沙箱优先（MarkItDown/PyMuPDF，中文 PDF 可靠）+ 本地 Go 回退 + looksReadable 乱码兜底；附件卡片解析动效（spinner/进度条/重试）。
 - ✅ 监控/审计（admin）：metric_events + worker /metrics/sys（宿主/容器/磁盘）+ PG 状态；对话审计与 zip 导出。
 - ✅ 运维：日志限容（json-file 10m×3）、cleanup_docker.sh 磁盘回收、监控磁盘 >80% 红警。
 - ✅ 存储/部署：Postgres 权威源；Docker Compose + Go 单进程托管前端；阿里云 ECS + Nginx TLS（已在线）。
