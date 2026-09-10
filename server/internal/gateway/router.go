@@ -116,7 +116,8 @@ func logMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s (%s)", r.Method, r.URL.Path, r.RemoteAddr, time.Since(start))
+		// RequestURI 含 query string（前端错误上报 /v1/debug/log?msg=... 依赖此记录 msg）
+		log.Printf("%s %s %s (%s)", r.Method, r.URL.RequestURI(), r.RemoteAddr, time.Since(start))
 	})
 }
 
