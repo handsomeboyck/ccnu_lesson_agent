@@ -17,7 +17,6 @@ import {
   Puzzle,
   Search,
   Send,
-  Sparkles,
   Square,
   Trash2,
   Pencil,
@@ -59,28 +58,28 @@ import type { CcnnPart } from '../lib/streamMerge'
 
 const WELCOME_GUIDES = [
   {
-    icon: Sparkles,
-    title: '苏格拉底式答疑',
-    desc: '引导你理解概念，而非直接给答案',
-    prompt: '用苏格拉底式提问帮我理解「导数」的概念',
+    icon: Puzzle,
+    title: '诊断教学设计',
+    desc: '诊断物理教学设计中的问题与改进方向',
+    prompt: '/diagnose 帮我诊断物理教学设计问题',
+  },
+  {
+    icon: GraduationCap,
+    title: '理论研修',
+    desc: '结合最近发展区理论设计物理教学过程',
+    prompt: '/theory 帮我讲讲怎么设计物理教学过程符合最近发展区',
   },
   {
     icon: NotebookPen,
-    title: '练习与测评',
-    desc: '按难度出题、批改作答、诊断薄弱点',
-    prompt: '生成 5 道一元二次方程练习题',
+    title: '课堂设问',
+    desc: '围绕物理概念出题，促进学生思维',
+    prompt: '/quiz 帮我按照物理概念教学，出课上的2个问题，促进学生思维，围绕电场强度概念',
   },
   {
     icon: Search,
-    title: '生成学习文件',
-    desc: '一键生成 Word 试卷 / PPT 课件 / 图表 / PDF',
-    prompt: '让 AI 生成一份三角函数教案 Word 文档',
-  },
-  {
-    icon: Library,
-    title: '资料库问答',
-    desc: '上传讲义后，AI 基于你的资料作答并标注出处',
-    prompt: '根据我的资料库讲一下勾股定理的证明思路',
+    title: '教学研究检索',
+    desc: '检索物理教学模式与方法的相关资料',
+    prompt: '/search 如何在实验教学中运用物理教学模式和方法',
   },
 ]
 
