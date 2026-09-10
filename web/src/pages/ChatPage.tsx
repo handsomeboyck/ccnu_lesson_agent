@@ -24,6 +24,7 @@ import {
   Trash2,
   Pencil,
   MoreHorizontal,
+  Loader2,
   PanelLeftOpen,
   X,
   type LucideIcon,
@@ -177,12 +178,7 @@ export default function ChatPage() {
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [commands, setCommands] = useState<CommandInfo[]>([])
-  // activeId 初始值同步自 localStorage：useChat 挂载时就用正确的会话 id，
-  // 官方 resume 端点立即以真实 conversationId 重连（不依赖异步 restore）
-  const [activeId, setActiveId] = useState<string | null>(() => {
-    const last = localStorage.getItem('ccnu-last-conv')
-    return last && last !== '' ? last : null
-  })
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [draftMode, setDraftMode] = useState<Mode>('companion')
   const [input, setInput] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
@@ -208,14 +204,11 @@ export default function ChatPage() {
   const convLoadedRef = useRef(false)             // 会话列表是否已加载完成
   const activeConv = conversations.find((c) => c.id === activeId) ?? null
 
-  // ---- AI SDK chat（v7：显式 transport + 官方 Resume Streams）----
+  // ---- AI SDK chat（v7：显式 transport + 请求适配层）----
   // throttle: 50ms —— 官方排障：默认每 chunk 全量重渲染，密集流（长报告/大工具参数）会触发
   // React #185（Maximum update depth exceeded），节流后按 50ms 批量更新 UI。
-  // resume:true + id:activeId —— 官方断点续传：切换/刷新后 SDK 自动 GET resume 端点重连
   const { messages, setMessages, sendMessage, status, stop, error: chatError } = useChat({
     throttle: 50,
-    resume: true,
-    id: activeId ?? undefined,
     transport: new DefaultChatTransport<UIMessage>({
       api: '/v1/chat',
       headers: () => ({ Authorization: `Bearer ${useAuth.getState().accessToken ?? ''}` }),
@@ -242,22 +235,116 @@ export default function ChatPage() {
           },
         }
       },
-      // 官方重连端点：GET /v1/chat/resume/{conversationId}（后端无流返回 204）
-      prepareReconnectToStreamRequest: ({ id }) => ({
-        api: `/v1/chat/resume/${id}`,
-        headers: { Authorization: `Bearer ${useAuth.getState().accessToken ?? ''}` },
-      }),
     }),
   })
   const streaming = status === 'streaming' || status === 'submitted'
 
-  // 停止生成：本地停止展示 + 显式通知后端终止后台任务
-  // 官方语义：stop() 只断开连接（不取消生成），真正停止走独立 stop 端点
+  // ---- Resume Streams：会话的 streamId 映射（localStorage 持久化，刷新不丢）----
+  const streamMapRef = useRef<Record<string, string>>({}) // convId → streamId
+  const [bgGenerating, setBgGenerating] = useState(false) // 后台生成中提示
+
+  // 初始化：从 localStorage 恢复 streamMap
+  useEffect(() => {
+    try {
+      streamMapRef.current = JSON.parse(localStorage.getItem('ccnu-stream-map') || '{}')
+    } catch {
+      streamMapRef.current = {}
+    }
+  }, [])
+
+  // meta chunk 到达时捕获 streamId（写内存 + localStorage）
+  useEffect(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      for (const p of messages[i].parts ?? []) {
+        if (p.type === 'data-ccnu' && (p as any).data?.type === 'meta' && (p as any).data.streamId) {
+          const sid = (p as any).data.streamId as string
+          if (convIdRef.current) {
+            streamMapRef.current[convIdRef.current] = sid
+            localStorage.setItem('ccnu-stream-map', JSON.stringify(streamMapRef.current))
+          }
+          return
+        }
+      }
+    }
+  }, [messages])
+
+  // 清理某会话的 streamMap 记录
+  const clearStream = useCallback((convId: string) => {
+    if (streamMapRef.current[convId]) {
+      delete streamMapRef.current[convId]
+      localStorage.setItem('ccnu-stream-map', JSON.stringify(streamMapRef.current))
+    }
+  }, [])
+
+  // watchGeneration：订阅重放端点作为"完成信号"，收到 [DONE] 后从 DB 拉权威消息。
+  // 不做手工重建——DB 是唯一数据源，避免切换渲染错乱/重复。
+  const watchGeneration = useCallback(
+    async (convId: string, streamId: string) => {
+      const token = useAuth.getState().accessToken ?? ''
+      try {
+        if (convIdRef.current === convId) setBgGenerating(true)
+        const r = await fetch(`/v1/chat/stream/${streamId}`, { headers: { Authorization: `Bearer ${token}` } })
+        if (!r.ok) {
+          // 流已过期 → 直接 DB 兜底
+          clearStream(convId)
+          if (convIdRef.current === convId) setBgGenerating(false)
+          return
+        }
+        const rd = r.body?.getReader()
+        if (!rd) return
+        const dc = new TextDecoder()
+        let buf = ''
+        let done = false
+        // 读到 [DONE]（或连接关闭）即生成完成
+        while (!done) {
+          const { done: rdDone, value } = await rd.read()
+          if (rdDone) break
+          buf += dc.decode(value, { stream: true })
+          const ls = buf.split('\n')
+          buf = ls.pop() ?? ''
+          for (const l of ls) {
+            if (l.startsWith('data: ') && l.slice(6).trim() === '[DONE]') {
+              done = true
+              break
+            }
+          }
+        }
+        // 完成后：清理 streamMap + 从 DB 重新加载权威消息（重试等落库完成）
+        clearStream(convId)
+        if (convIdRef.current === convId) setBgGenerating(false)
+        // [DONE] 可能先于落库到达 → 轮询 DB 直到出现 assistant 回复（≤10s）
+        for (let attempt = 0; attempt < 10 && convIdRef.current === convId; attempt++) {
+          const { messages: msgs } = await listMessages(convId)
+          const lastMsg = msgs[msgs.length - 1]
+          if (lastMsg?.role === 'assistant' && (lastMsg.content || lastMsg.ask)) {
+            if (convIdRef.current === convId) {
+              setMessages(historyToMessages(msgs))
+              requestAnimationFrame(() => {
+                const el = scrollRef.current
+                if (el) el.scrollTop = el.scrollHeight
+              })
+            }
+            break
+          }
+          await new Promise((r) => setTimeout(r, 1000))
+        }
+      } catch {
+        clearStream(convId)
+        if (convIdRef.current === convId) setBgGenerating(false)
+      }
+    },
+    [clearStream, setMessages],
+  )
+
+  // 停止生成：本地停止展示 + 显式通知后端终止后台任务（生成已与连接解耦）
   const stopGeneration = useCallback(() => {
     const convID = convIdRef.current
     stop()
-    if (convID) void stopChat(convID).catch(() => {})
-  }, [stop])
+    if (convID) {
+      void stopChat(convID).catch(() => {})
+      clearStream(convID)
+    }
+  }, [stop, clearStream])
 
   // ---- 初始化（含刷新恢复：会话 + 草稿）----
   useEffect(() => {
@@ -307,6 +394,18 @@ export default function ChatPage() {
     },
     [conversations, streaming, stop, setMessages],
   )
+
+  // 切换/恢复：若有活跃流则订阅重放（完成信号），收到 [DONE] 后从 DB 拉权威消息
+  useEffect(() => {
+    if (!activeId) return
+    const sid = streamMapRef.current[activeId]
+    if (sid) {
+      void watchGeneration(activeId, sid)
+      return
+    }
+    // 无活跃流：从 DB 加载历史（openConversation 已处理，此处兜底）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, watchGeneration])
 
   // 刷新后自动恢复上次打开的会话（等会话列表真正加载完成再消费，避免竞态）
   useEffect(() => {
@@ -864,6 +963,12 @@ export default function ChatPage() {
           ))}
 
           {streaming && messages.length > 0 && !hasAnyPart(messages[messages.length - 1]) && <ThinkingIndicator />}
+          {bgGenerating && !streaming && (
+            <div className="mx-auto mt-3 flex w-fit items-center gap-2 rounded-full border border-ccnu-blue/30 bg-ccnu-blue/5 px-3 py-1.5 text-xs text-ccnu-blue-deep">
+              <Loader2 className="size-3.5 animate-spin" />
+              正在后台生成中…完成后自动显示
+            </div>
+          )}
           {(chatError || error) && (
             <div className="mt-3 flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               <span>⚠ {chatError?.message ?? error}</span>
