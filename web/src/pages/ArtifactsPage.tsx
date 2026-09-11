@@ -111,7 +111,8 @@ export default function ArtifactsPage() {
         const blob = await fetchArtifact(preview.id)
         if (!alive || !docxEl.current) return
         docxEl.current.innerHTML = ''
-        await renderAsync(blob, docxEl.current, undefined, { className: 'docx-preview-inner' })
+        // styleContainer 传父容器：docx-preview 注入页面样式（随预览容器一起卸载，无泄漏）
+        await renderAsync(blob, docxEl.current, docxEl.current.parentElement ?? undefined, { className: 'docx-preview-inner' })
       } catch (err) {
         if (alive) setError(err instanceof Error ? err.message : 'docx 预览失败')
       } finally {
@@ -168,13 +169,18 @@ export default function ArtifactsPage() {
         const first = wb.SheetNames[0]
         setPreviewKind('xlsx')
         setPreviewHtml(first ? XLSX.utils.sheet_to_html(wb.Sheets[first]) : '<p>（无工作表）</p>')
+      } else if (blob.type === 'application/msword' || name.endsWith('.doc')) {
+        // 老式二进制 .doc：前端无成熟渲染库，明确提示（避免二进制乱码）
+        setPreviewKind('text')
+        setPreviewText('老式 .doc 格式不支持在线预览（前端无渲染库）。请下载后用 Word/WPS 打开，或重新生成 .docx 版本。')
       } else {
         setPreviewKind('text')
         setPreviewText((await blob.text()).slice(0, 50000))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '预览失败')
-      setBusyPreview(false)
+    } finally {
+      setBusyPreview(false) // 所有分支统一关闭 loading（docx 由渲染 effect 幂等关闭）
     }
   }
 
@@ -358,10 +364,14 @@ export default function ArtifactsPage() {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-4">
-              {busyPreview ? (
+              {previewKind === 'docx' ? (
+                // docx 容器必须始终挂载（effect 依赖 ref 渲染），loading 叠加其上
+                <>
+                  {busyPreview && <div className="mb-2 text-sm text-muted-foreground">正在加载预览…</div>}
+                  <div ref={docxEl} className="docx-preview-box" />
+                </>
+              ) : busyPreview ? (
                 <div className="text-sm text-muted-foreground">正在加载预览…</div>
-              ) : previewKind === 'docx' ? (
-                <div ref={docxEl} className="docx-preview-box" />
               ) : previewKind === 'html' ? (
                 <iframe
                   srcDoc={previewHtml}
