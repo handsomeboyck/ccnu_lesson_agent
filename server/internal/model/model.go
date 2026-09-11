@@ -345,7 +345,7 @@ func (p *OpenAIProvider) post(ctx context.Context, body []byte) (*http.Response,
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.cfg.OpenAIAPIKey)
+	httpReq.Header.Set("Authorization", "Bearer "+GetAPIKey())
 	return p.client.Do(httpReq)
 }
 

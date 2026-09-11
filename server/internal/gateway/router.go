@@ -30,6 +30,7 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 		streams: newStreamRegistry()}
 	chatH.attach = &chatAttachmentService{store: st, uploadDir: cfg.UploadDir}
 	monH := newMonitorService(st, codexCli, cfg.OpenAIBaseURL, cfg.OpenAIAPIKey)
+	adminH := newAdminService(cfg.APIKeyFile, cfg.OpenAIBaseURL)
 
 	mux := http.NewServeMux()
 
@@ -89,6 +90,9 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	mux.HandleFunc("GET /v1/monitor/conversations/{id}/export", authH.requireRole(monH.auditExport, store.RoleAdmin))
 	mux.HandleFunc("GET /v1/monitor/balance", authH.requireRole(monH.balance, store.RoleAdmin))
 	mux.HandleFunc("GET /v1/monitor/user-costs", authH.requireRole(monH.userCosts, store.RoleAdmin))
+
+	// Admin：API Key 热替换（仅 admin，验证连通性后即时生效）
+	mux.HandleFunc("PUT /v1/admin/apikey", authH.requireRole(adminH.replaceAPIKey, store.RoleAdmin))
 
 	handler := http.Handler(mux)
 	handler = corsMiddleware(cfg.CORSOrigins, handler)

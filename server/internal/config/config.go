@@ -18,6 +18,7 @@ type Config struct {
 	OpenAIBaseURL   string
 	OpenAIModel     string
 	OpenAIReasoningEffort string // 思考模式强度（low/high/max；空 = 关闭；默认 low）
+	APIKeyFile      string // API Key 持久化文件路径（空 = 不持久化，替换时仅内存生效）
 	DatabaseURL     string // 空 = 使用内存 store（本地开发演示）
 	WebDist         string // 前端静态资源目录（空 = 不托管前端）
 	SkillsDir       string // SKILL.md 技能目录（默认 ./skills）
@@ -81,6 +82,7 @@ func Load() *Config {
 		UploadDir:       os.Getenv("UPLOAD_DIR"),
 		ArtifactDir:     os.Getenv("ARTIFACT_DIR"),
 		CodexURL:        os.Getenv("CODEX_URL"),
+		APIKeyFile:      getenv("APIKEY_FILE", "/opt/ccnu_lesson_agent/.apikey"),
 	}
 	if v := os.Getenv("CORS_ORIGINS"); v != "" {
 		for _, o := range splitCSV(v) {
