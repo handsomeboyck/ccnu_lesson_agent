@@ -28,7 +28,7 @@ COPY --from=web /app/web/dist /app/web/dist
 # 默认技能直接作为 /app/skills（属主 app）；named volume 首次挂载会复制镜像内容与属主
 COPY --from=server /out/skills /app/skills
 COPY --from=server /out/skills /app/skills-default
-RUN mkdir -p /app/uploads /app/artifacts && chown -R app:app /app/skills /app/skills-default /app/uploads /app/artifacts
+RUN mkdir -p /app/uploads /app/artifacts && chown -R app:app /app
 USER app
 ENV PORT=8080 WEB_DIST=/app/web/dist SKILLS_DIR=/app/skills SKILLS_DEFAULT=/app/skills-default UPLOAD_DIR=/app/uploads ARTIFACT_DIR=/app/artifacts
 EXPOSE 8080
