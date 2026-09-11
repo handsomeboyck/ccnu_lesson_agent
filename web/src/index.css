@@ -2661,3 +2661,46 @@ button.artifact-file:disabled {
   0% { transform: translateX(-110%); }
   100% { transform: translateX(320%); }
 }
+
+/* ---- 产物预览：docx-preview 容器 + xlsx 表格 ---- */
+.docx-preview-box {
+  background: #fff;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #1d1d1f;
+}
+.docx-preview-box table {
+  border-collapse: collapse;
+}
+.docx-preview-box td,
+.docx-preview-box th {
+  border: 1px solid #d0d3d9;
+  padding: 4px 8px;
+}
+.docx-preview-box img {
+  max-width: 100%;
+  height: auto;
+}
+.xlsx-preview {
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.xlsx-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  background: #fff;
+}
+.xlsx-preview td,
+.xlsx-preview th {
+  border: 1px solid #d0d3d9;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+.xlsx-preview th {
+  background: #f4f5f7;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
