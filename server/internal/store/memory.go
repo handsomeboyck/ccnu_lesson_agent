@@ -688,3 +688,11 @@ func (s *memoryStore) RecentLatencies(ctx context.Context, hours int, limit int)
 	}
 	return lat, nil
 }
+
+func (s *memoryStore) TotalCost(ctx context.Context, hours int) (*CostSummary, error) {
+	return &CostSummary{}, nil
+}
+
+func (s *memoryStore) UserCosts(ctx context.Context, hours int, limit int) ([]UserCostItem, error) {
+	return nil, nil
+}

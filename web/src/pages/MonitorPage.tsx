@@ -176,7 +176,40 @@ export default function MonitorPage() {
             <StatCard label="平均延迟" value={`${Math.round(a?.avg_latency_ms ?? 0)}ms`} sub={`P50 ${Math.round(a?.p50_ms ?? 0)}ms · P95 ${Math.round(a?.p95_ms ?? 0)}ms`} />
             <StatCard label="代码执行成功率" value={a && a.codex_runs > 0 ? `${Math.round(((a.codex_ok ?? 0) / a.codex_runs) * 100)}%` : '—'} sub={`${a?.codex_ok ?? 0}/${a?.codex_runs ?? 0} 成功`} accent="var(--success)" />
             <StatCard label="错误数" value={fmtNum(a?.chat_err ?? 0)} sub="对话级错误" accent={a && a.chat_err ? 'var(--danger)' : undefined} />
+            <StatCard
+              label="预估成本"
+              value={data?.cost?.estimated_cost_cny ? `¥ ${data.cost.estimated_cost_cny}` : '—'}
+              sub={`${data?.cost?.conversation_count ?? 0} 轮对话 · 输入 ${fmtNum(data?.cost?.prompt_tokens ?? 0)} · 输出 ${fmtNum(data?.cost?.completion_tokens ?? 0)}`}
+              accent="var(--ccnu-gold)"
+            />
           </div>
+
+          {/* 用户成本排行 */}
+          {data?.user_costs && data.user_costs.length > 0 && (
+            <div className="monitor-panel mt-4">
+              <div className="monitor-panel-title">用户成本排行（近 24 小时）</div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-1.5 pr-4">用户</th>
+                    <th className="py-1.5 pr-4 text-right">输入</th>
+                    <th className="py-1.5 pr-4 text-right">输出</th>
+                    <th className="py-1.5 text-right">预估费用</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.user_costs.map((u) => (
+                    <tr key={u.user_id} className="border-b border-border/50">
+                      <td className="py-1.5 pr-4">{u.display_name || u.username || u.user_id.slice(0,8)}</td>
+                      <td className="py-1.5 pr-4 text-right">{fmtNum(u.prompt_tokens)}</td>
+                      <td className="py-1.5 pr-4 text-right">{fmtNum(u.completion_tokens)}</td>
+                      <td className="py-1.5 text-right font-medium">¥ {u.estimated_cost_cny}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div className="monitor-cols">
             {/* 24h 柱状图 */}

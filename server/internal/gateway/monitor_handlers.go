@@ -13,14 +13,29 @@ import (
 	"time"
 
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/codex"
+	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/model"
 	"github.com/handsomeboyck/ccnu_lesson_agent/server/internal/store"
 )
 
-// monitorService 提供 admin 监控聚合（/v1/monitor/overview）。
+// monitorService 提供 admin 监控聚合（/v1/monitor/*）。
 type monitorService struct {
 	store    store.Store
 	codex    *codex.Client
 	started  time.Time
+	// DeepSeek 余额查询用
+	balanceBaseURL string
+	balanceAPIKey  string
+}
+
+// newMonitorService 构造监控服务（注入 DeepSeek 余额查询凭据）。
+func newMonitorService(st store.Store, codexCli *codex.Client, balanceBaseURL, balanceAPIKey string) *monitorService {
+	return &monitorService{
+		store:          st,
+		codex:          codexCli,
+		started:        time.Now(),
+		balanceBaseURL: balanceBaseURL,
+		balanceAPIKey:  balanceAPIKey,
+	}
 }
 
 // overview 把 Agent 指标、Postgres 状态、宿主/容器指标合并成一个快照。
@@ -98,6 +113,13 @@ func (m *monitorService) overview(w http.ResponseWriter, r *http.Request) {
 		"db":     m.dbStats(ctx),
 		"system": m.systemStats(ctx),
 	}
+	// 成本统计（注入 overview 响应，前端一次拿到）
+	if cost, err := m.store.TotalCost(ctx, hours); err == nil {
+		resp["cost"] = cost
+	}
+	if users, err := m.store.UserCosts(ctx, hours, 20); err == nil && len(users) > 0 {
+		resp["user_costs"] = users
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -140,6 +162,30 @@ func (m *monitorService) systemStats(ctx context.Context) map[string]any {
 	out["host"] = sys.Host
 	out["containers"] = sys.Containers
 	return out
+}
+
+// balance 查询 DeepSeek 账户余额。
+func (m *monitorService) balance(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	info, err := model.QueryBalance(ctx, m.balanceBaseURL, m.balanceAPIKey)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"balance": info})
+}
+
+// userCosts 用户成本排行（专用端点，支持 page 参数）。
+func (m *monitorService) userCosts(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
+	items, err := m.store.UserCosts(ctx, 24, 50)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "user costs: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // serviceHealth 三服务健康状态（app 本身恒健康由存在性体现；db/codex 即时探测）。

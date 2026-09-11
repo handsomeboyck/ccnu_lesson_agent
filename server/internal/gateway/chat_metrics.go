@@ -12,7 +12,8 @@ import (
 // recordChatMetrics 把一次对话（及期间的工具调用）写入指标表。
 // chat 状态：有 error → error；停在 ask → ask；否则 ok。
 func recordChatMetrics(ctx context.Context, st store.Store, mode, errorMsg string,
-	pendingAsk *skill.Ask, usage *model.Usage, toolCalls map[string]int, d time.Duration) {
+	pendingAsk *skill.Ask, usage *model.Usage, toolCalls map[string]int, d time.Duration,
+	userID, conversationID string) {
 
 	status := "ok"
 	if errorMsg != "" {
@@ -21,11 +22,13 @@ func recordChatMetrics(ctx context.Context, st store.Store, mode, errorMsg strin
 		status = "ask"
 	}
 	ev := &store.MetricEvent{
-		Kind:       "chat",
-		Mode:       mode,
-		Status:     status,
-		DurationMs: d.Milliseconds(),
-		At:         time.Now(),
+		Kind:           "chat",
+		Mode:           mode,
+		Status:         status,
+		DurationMs:     d.Milliseconds(),
+		UserID:         userID,
+		ConversationID: conversationID,
+		At:             time.Now(),
 	}
 	if usage != nil {
 		ev.PromptTokens = int64(usage.PromptTokens)

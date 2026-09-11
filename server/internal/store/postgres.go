@@ -624,10 +624,10 @@ func (s *pgStore) UpdateArtifactStorageKey(ctx context.Context, id, userID, stor
 
 func (s *pgStore) AppendMetric(ctx context.Context, ev *MetricEvent) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO metric_events (kind, mode, status, skill, prompt_tokens, completion_tokens, cache_hit_tokens, cache_miss_tokens, duration_ms, ts)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		`INSERT INTO metric_events (kind, mode, status, skill, prompt_tokens, completion_tokens, cache_hit_tokens, cache_miss_tokens, duration_ms, user_id, conversation_id, ts)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 		ev.Kind, ev.Mode, ev.Status, ev.Skill, ev.PromptTokens, ev.CompletionTokens,
-		ev.CacheHitTokens, ev.CacheMissTokens, ev.DurationMs, ev.At)
+		ev.CacheHitTokens, ev.CacheMissTokens, ev.DurationMs, ev.UserID, ev.ConversationID, ev.At)
 	return err
 }
 
@@ -756,6 +756,75 @@ func (s *pgStore) RecentLatencies(ctx context.Context, hours int, limit int) ([]
 			return nil, err
 		}
 		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// ---- cost tracking（成本统计）----
+
+// deepseekCost 按 deepseek-v4-flash 官方定价估算（CNY/1M tokens）
+// 输入（cache miss）¥1.00，输入（cache hit）¥0.10，输出 ¥2.00
+func deepseekCost(promptMiss, promptHit, completion int64) string {
+	const (
+		missPrice = 1.00  // ¥/1M
+		hitPrice  = 0.10  // ¥/1M (90% discount)
+		outPrice  = 2.00  // ¥/1M
+	)
+	f := func(t int64, p float64) float64 { return float64(t) / 1_000_000 * p }
+	cost := f(promptMiss, missPrice) + f(promptHit, hitPrice) + f(completion, outPrice)
+	return fmt.Sprintf("%.4f", cost)
+}
+
+func (s *pgStore) TotalCost(ctx context.Context, hours int) (*CostSummary, error) {
+	cut := time.Now().Add(-time.Duration(hours) * time.Hour)
+	var cs CostSummary
+	err := s.pool.QueryRow(ctx, `
+		SELECT coalesce(sum(prompt_tokens),0)::bigint,
+		       coalesce(sum(completion_tokens),0)::bigint,
+		       coalesce(sum(cache_hit_tokens),0)::bigint,
+		       coalesce(sum(cache_miss_tokens),0)::bigint,
+		       count(*) FILTER (WHERE kind='chat')::bigint
+		FROM metric_events WHERE kind='chat' AND ts >= $1`, cut).
+		Scan(&cs.PromptTokens, &cs.CompletionTokens, &cs.CacheHitTokens, &cs.CacheMissTokens, &cs.ConversationCount)
+	if err != nil {
+		return nil, err
+	}
+	cs.EstimatedCostCNY = deepseekCost(cs.CacheMissTokens, cs.CacheHitTokens, cs.CompletionTokens)
+	return &cs, nil
+}
+
+func (s *pgStore) UserCosts(ctx context.Context, hours int, limit int) ([]UserCostItem, error) {
+	cut := time.Now().Add(-time.Duration(hours) * time.Hour)
+	rows, err := s.pool.Query(ctx, `
+		SELECT m.user_id,
+		       coalesce(u.username, m.user_id) AS username,
+		       coalesce(u.display_name, '') AS display_name,
+		       coalesce(sum(m.prompt_tokens),0)::bigint,
+		       coalesce(sum(m.completion_tokens),0)::bigint,
+		       coalesce(sum(m.cache_hit_tokens),0)::bigint,
+		       coalesce(sum(m.cache_miss_tokens),0)::bigint,
+		       count(*) FILTER (WHERE m.kind='chat')::bigint
+		FROM metric_events m
+		LEFT JOIN users u ON u.id = m.user_id
+		WHERE m.kind='chat' AND m.ts >= $1 AND m.user_id != ''
+		GROUP BY m.user_id, u.username, u.display_name
+		ORDER BY sum(m.prompt_tokens)+sum(m.completion_tokens) DESC
+		LIMIT $2`, cut, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UserCostItem
+	for rows.Next() {
+		var it UserCostItem
+		var promptTok, completionTok, cacheHit, cacheMiss int64
+		if err := rows.Scan(&it.UserID, &it.Username, &it.DisplayName, &promptTok, &completionTok, &cacheHit, &cacheMiss, &it.ConversationCount); err != nil {
+			return nil, err
+		}
+		it.PromptTokens = promptTok
+		it.CompletionTokens = completionTok
+		it.EstimatedCostCNY = deepseekCost(cacheMiss, cacheHit, completionTok)
+		out = append(out, it)
 	}
 	return out, rows.Err()
 }

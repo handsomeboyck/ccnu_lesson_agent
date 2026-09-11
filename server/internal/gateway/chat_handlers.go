@@ -429,7 +429,7 @@ func (c *chatService) stream(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		mctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		recordChatMetrics(mctx, c.store, conv.Mode, errorMsg, pendingAsk, usage, toolCalls, time.Since(start))
+		recordChatMetrics(mctx, c.store, conv.Mode, errorMsg, pendingAsk, usage, toolCalls, time.Since(start), claims.UserID, conv.ID)
 	}()
 
 	// 6. 持久化助手回复：有文本落文本；仅提问则把问题作为助手消息落库，
