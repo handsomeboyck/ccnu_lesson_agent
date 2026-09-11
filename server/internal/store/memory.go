@@ -230,6 +230,30 @@ func (s *memoryStore) ListAllConversations(ctx context.Context, limit int) ([]*C
 	return out, nil
 }
 
+func (s *memoryStore) ListConversationsPage(ctx context.Context, page, pageSize int) ([]*ConvAudit, int, error) {
+	if page <= 0 { page = 1 }
+	if pageSize <= 0 || pageSize > 200 { pageSize = 30 }
+	offset := (page - 1) * pageSize
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	total := len(s.conversation)
+	var tmp []*ConvAudit
+	for _, c := range s.conversation {
+		ca := ConvAudit{Conversation: *c}
+		if u := s.users[c.UserID]; u != nil {
+			ca.Username = u.Username
+			ca.DisplayName = u.DisplayName
+		}
+		cc := ca
+		tmp = append(tmp, &cc)
+	}
+	sort.Slice(tmp, func(i, j int) bool { return tmp[i].UpdatedAt.After(tmp[j].UpdatedAt) })
+	if offset > len(tmp) { return nil, total, nil }
+	end := offset + pageSize
+	if end > len(tmp) { end = len(tmp) }
+	return tmp[offset:end], total, nil
+}
+
 func (s *memoryStore) GetConversationAdmin(ctx context.Context, id string) (*ConvAudit, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

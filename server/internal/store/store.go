@@ -193,6 +193,8 @@ type Store interface {
 	TouchConversation(ctx context.Context, id, userID string, at time.Time) error
 	// ListAllConversations 全站会话（admin 审计用；Conversation.UserID 为所有者 id，Username/Display 带所有者信息）
 	ListAllConversations(ctx context.Context, limit int) ([]*ConvAudit, error)
+	// ListConversationsPage 分页查询全站会话（admin 审计；返回列表 + 总数）
+	ListConversationsPage(ctx context.Context, page, pageSize int) ([]*ConvAudit, int, error)
 	// GetConversationAdmin 按 id 无归属校验取会话（admin 审计）。
 	GetConversationAdmin(ctx context.Context, id string) (*ConvAudit, error)
 	// ListConversationAttachments 会话关联的文档（多轮附件记忆；按 added_at 升序）

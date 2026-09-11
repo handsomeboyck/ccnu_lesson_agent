@@ -423,6 +423,16 @@ export function fetchMonitorOverview(): Promise<MonitorOverview> {
   return request('/v1/monitor/overview', { auth: true })
 }
 
+// 查询 DeepSeek 账户余额
+export interface BalanceInfo {
+  is_available: boolean
+  balance_infos?: { currency: string; total_balance: string; granted_balance: string; topped_up_balance: string }[]
+  error?: string
+}
+export function fetchDeepSeekBalance(): Promise<{ balance: BalanceInfo }> {
+  return request('/v1/monitor/balance', { auth: true })
+}
+
 // ---- 对话审计（仅 admin） ----
 
 export interface AuditConv {
@@ -443,8 +453,8 @@ export interface AuditMsg {
   created_at: string
 }
 
-export function listAuditConversations(): Promise<{ conversations: AuditConv[]; total: number }> {
-  return request('/v1/monitor/conversations', { auth: true })
+export function listAuditConversations(page = 1, pageSize = 30): Promise<{ conversations: AuditConv[]; total: number; page: number; page_size: number }> {
+  return request(`/v1/monitor/conversations?page=${page}&page_size=${pageSize}`, { auth: true })
 }
 export function fetchAuditTranscript(id: string): Promise<{ conversation: AuditConv; messages: AuditMsg[] }> {
   return request(`/v1/monitor/conversations/${id}`, { auth: true })
