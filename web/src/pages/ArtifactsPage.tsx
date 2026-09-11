@@ -114,7 +114,13 @@ export default function ArtifactsPage() {
         // styleContainer 传父容器：docx-preview 注入页面样式（随预览容器一起卸载，无泄漏）
         await renderAsync(blob, docxEl.current, docxEl.current.parentElement ?? undefined, { className: 'docx-preview-inner' })
       } catch (err) {
-        if (alive) setError(err instanceof Error ? err.message : 'docx 预览失败')
+        if (alive) {
+          setError(err instanceof Error ? err.message : 'docx 预览失败')
+          // 上报真实错误到服务端日志（前端错误通道）
+          try {
+            void fetch(`/v1/debug/log?msg=docx-preview-error:${encodeURIComponent(String(err))}`, { keepalive: true })
+          } catch { /* ignore */ }
+        }
       } finally {
         if (alive) setBusyPreview(false)
       }
