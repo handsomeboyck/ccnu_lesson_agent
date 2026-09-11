@@ -216,6 +216,9 @@ export default function MonitorPage() {
               accent="var(--ccnu-gold)"
             />
           </div>
+          <p className="mt-2 text-center text-[11px] text-muted-foreground">
+            成本公式：输入 ¥1.00/1M + 缓存命中 ¥0.10/1M + 输出 ¥2.00/1M（deepseek-v4-flash 官方定价）· 数据范围：近 24 小时
+          </p>
 
           {/* 用户成本排行 */}
           {data?.user_costs && data.user_costs.length > 0 && (
