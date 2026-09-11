@@ -82,7 +82,7 @@ func Load() *Config {
 		UploadDir:       os.Getenv("UPLOAD_DIR"),
 		ArtifactDir:     os.Getenv("ARTIFACT_DIR"),
 		CodexURL:        os.Getenv("CODEX_URL"),
-		APIKeyFile:      getenv("APIKEY_FILE", "/opt/ccnu_lesson_agent/.apikey"),
+		APIKeyFile:      getenv("APIKEY_FILE", "/app/.apikey"),
 	}
 	if v := os.Getenv("CORS_ORIGINS"); v != "" {
 		for _, o := range splitCSV(v) {
