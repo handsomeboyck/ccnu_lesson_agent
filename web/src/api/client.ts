@@ -453,8 +453,8 @@ export interface AuditMsg {
   created_at: string
 }
 
-export function listAuditConversations(): Promise<{ conversations: AuditConv[]; total: number }> {
-  return request('/v1/monitor/conversations', { auth: true })
+export function listAuditConversations(page = 1, pageSize = 30): Promise<{ conversations: AuditConv[]; total: number; page: number; page_size: number }> {
+  return request(`/v1/monitor/conversations?page=${page}&page_size=${pageSize}`, { auth: true })
 }
 export function fetchAuditTranscript(id: string): Promise<{ conversation: AuditConv; messages: AuditMsg[] }> {
   return request(`/v1/monitor/conversations/${id}`, { auth: true })

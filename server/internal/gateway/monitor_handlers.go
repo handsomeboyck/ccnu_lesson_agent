@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -214,16 +215,22 @@ func (m *monitorService) serviceHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// auditConversations 全站会话（admin 审计：显示所有者与时间）。
+// auditConversations 全站会话（admin 审计：支持分页 page/page_size）。
 func (m *monitorService) auditConversations(w http.ResponseWriter, r *http.Request) {
-	limit := 500
-	if q := r.URL.Query().Get("limit"); q != "" {
-		var n int
-		if _, err := fmt.Sscanf(q, "%d", &n); err == nil && n > 0 {
-			limit = n
+	page := 1
+	pageSize := 30
+	if q := r.URL.Query().Get("page"); q != "" {
+		if n, err := fmt.Sscanf(q, "%d", new(int)); err == nil {
+			fmt.Sscanf(q, "%d", &n)
 		}
 	}
-	convs, err := m.store.ListAllConversations(r.Context(), limit)
+	if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
+		page = v
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("page_size")); err == nil && v > 0 && v <= 200 {
+		pageSize = v
+	}
+	convs, total, err := m.store.ListConversationsPage(r.Context(), page, pageSize)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list: "+err.Error())
 		return
@@ -241,7 +248,7 @@ func (m *monitorService) auditConversations(w http.ResponseWriter, r *http.Reque
 			"updated_at":   c.UpdatedAt,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"conversations": out, "total": len(out)})
+	writeJSON(w, http.StatusOK, map[string]any{"conversations": out, "total": total, "page": page, "page_size": pageSize})
 }
 
 // auditTranscript 某个会话的完整问答（admin：不做归属校验）。

@@ -90,21 +90,26 @@ export default function MonitorPage() {
 
   // 对话审计
   const [convs, setConvs] = useState<AuditConv[]>([])
+  const [convTotal, setConvTotal] = useState(0)
+  const [convPage, setConvPage] = useState(1)
   const [convErr, setConvErr] = useState('')
   const [transcript, setTranscript] = useState<{ conv: AuditConv; msgs: AuditMsg[] } | null>(null)
   const [search, setSearch] = useState('')
+  const pageSize = 30
 
-  async function loadConvs() {
+  async function loadConvs(p = convPage) {
     try {
-      const { conversations } = await listAuditConversations()
+      const { conversations, total } = await listAuditConversations(p, pageSize)
       setConvs(conversations)
+      setConvTotal(total)
+      setConvPage(p)
       setConvErr('')
     } catch (e) {
       setConvErr(e instanceof Error ? e.message : '加载会话失败')
     }
   }
   useEffect(() => {
-    void loadConvs()
+    void loadConvs(1)
   }, [])
 
   async function openTranscript(c: AuditConv) {
@@ -331,7 +336,8 @@ export default function MonitorPage() {
           {filteredConvs.length === 0 ? (
             <div className="monitor-empty">暂无会话</div>
           ) : (
-            <div className="audit-table">
+            <>
+              <div className="audit-table">
               <div className="audit-row audit-head">
                 <span className="audit-user">用户</span>
                 <span className="audit-title-col">会话标题</span>
@@ -364,6 +370,14 @@ export default function MonitorPage() {
                 </div>
               ))}
             </div>
+            {convTotal > pageSize && (
+              <div className="mt-3 flex items-center justify-center gap-2 text-xs">
+                <button className="rounded border border-border px-2 py-1 hover:bg-accent disabled:opacity-30" disabled={convPage <= 1} onClick={() => void loadConvs(convPage - 1)}>上一页</button>
+                <span className="text-muted-foreground">第 {convPage} / {Math.ceil(convTotal / pageSize)} 页（共 {convTotal} 条）</span>
+                <button className="rounded border border-border px-2 py-1 hover:bg-accent disabled:opacity-30" disabled={convPage >= Math.ceil(convTotal / pageSize)} onClick={() => void loadConvs(convPage + 1)}>下一页</button>
+              </div>
+            )}
+          </>
           )}
         </section>
 

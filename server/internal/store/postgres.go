@@ -228,6 +228,36 @@ func (s *pgStore) ListAllConversations(ctx context.Context, limit int) ([]*ConvA
 	return out, rows.Err()
 }
 
+func (s *pgStore) ListConversationsPage(ctx context.Context, page, pageSize int) ([]*ConvAudit, int, error) {
+	if page <= 0 { page = 1 }
+	if pageSize <= 0 || pageSize > 200 { pageSize = 30 }
+	offset := (page - 1) * pageSize
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM conversations`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT c.id, c.user_id, c.title, c.mode, c.course_id, c.created_at, c.updated_at,
+		        u.username, coalesce(u.display_name,'')
+		 FROM conversations c LEFT JOIN users u ON u.id = c.user_id
+		 ORDER BY c.updated_at DESC LIMIT $1 OFFSET $2`, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []*ConvAudit
+	for rows.Next() {
+		var ca ConvAudit
+		if err := rows.Scan(&ca.ID, &ca.UserID, &ca.Title, &ca.Mode, &ca.CourseID, &ca.CreatedAt,
+			&ca.UpdatedAt, &ca.Username, &ca.DisplayName); err != nil {
+			return nil, 0, err
+		}
+		cc := ca
+		out = append(out, &cc)
+	}
+	return out, total, rows.Err()
+}
+
 func (s *pgStore) GetConversationAdmin(ctx context.Context, id string) (*ConvAudit, error) {
 	var ca ConvAudit
 	err := s.pool.QueryRow(ctx,
