@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -10,7 +10,8 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import mammoth from 'mammoth'
+import { renderAsync } from '@novet/docx-preview'
+import * as XLSX from 'xlsx'
 import FileIcon from '../components/FileIcon'
 import {
   deleteArtifact,
@@ -34,6 +35,7 @@ const PREVIEWABLE = [
   'text/csv',
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ]
 
 /** 文件类型徽章配色。 */
@@ -93,10 +95,31 @@ export default function ArtifactsPage() {
   const [info, setInfo] = useState('')
   const [search, setSearch] = useState('')
   const [preview, setPreview] = useState<ArtifactInfo | null>(null)
+  const [previewKind, setPreviewKind] = useState<'image' | 'pdf' | 'docx' | 'html' | 'xlsx' | 'text' | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewText, setPreviewText] = useState('')
   const [previewHtml, setPreviewHtml] = useState('')
   const [busyPreview, setBusyPreview] = useState(false)
+  const docxEl = useRef<HTMLDivElement | null>(null)
+
+  // docx：docx-preview 需要真实 DOM 容器，渲染区挂载后异步渲染
+  useEffect(() => {
+    if (previewKind !== 'docx' || !preview) return
+    let alive = true
+    void (async () => {
+      try {
+        const blob = await fetchArtifact(preview.id)
+        if (!alive || !docxEl.current) return
+        docxEl.current.innerHTML = ''
+        await renderAsync(blob, docxEl.current, undefined, { className: 'docx-preview-inner' })
+      } catch (err) {
+        if (alive) setError(err instanceof Error ? err.message : 'docx 预览失败')
+      } finally {
+        if (alive) setBusyPreview(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [previewKind, preview])
 
   const refresh = useCallback(async () => {
     try {
@@ -125,20 +148,32 @@ export default function ArtifactsPage() {
       setPreviewHtml('')
       setBusyPreview(true)
       const blob = await fetchArtifact(a.id)
+      const name = a.filename.toLowerCase()
       if (blob.type.startsWith('image/')) {
+        setPreviewKind('image')
         setPreviewUrl(URL.createObjectURL(blob))
       } else if (blob.type === 'application/pdf') {
+        setPreviewKind('pdf')
         setPreviewUrl(URL.createObjectURL(blob))
-      } else if (blob.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        const buf = await blob.arrayBuffer()
-        const res = await mammoth.convertToHtml({ arrayBuffer: buf })
-        setPreviewHtml(res.value)
+      } else if (blob.type.includes('html') || name.endsWith('.html') || name.endsWith('.htm')) {
+        // HTML：iframe srcDoc 直接渲染网页效果（sandbox 隔离，不执行脚本）
+        setPreviewKind('html')
+        setPreviewHtml(await blob.text())
+      } else if (blob.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx')) {
+        // docx：docx-preview 渲染到容器（版式保真：表格/图片/样式）
+        setPreviewKind('docx')
+      } else if (blob.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || name.endsWith('.xlsx') || name.endsWith('.xls')) {
+        // xlsx：SheetJS 解析 → HTML 表格
+        const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array' })
+        const first = wb.SheetNames[0]
+        setPreviewKind('xlsx')
+        setPreviewHtml(first ? XLSX.utils.sheet_to_html(wb.Sheets[first]) : '<p>（无工作表）</p>')
       } else {
+        setPreviewKind('text')
         setPreviewText((await blob.text()).slice(0, 50000))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '预览失败')
-    } finally {
       setBusyPreview(false)
     }
   }
@@ -146,6 +181,7 @@ export default function ArtifactsPage() {
   function closePreview() {
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setPreview(null)
+    setPreviewKind(null)
     setPreviewUrl(null)
     setPreviewText('')
     setPreviewHtml('')
@@ -324,14 +360,23 @@ export default function ArtifactsPage() {
             <div className="min-h-0 flex-1 overflow-auto p-4">
               {busyPreview ? (
                 <div className="text-sm text-muted-foreground">正在加载预览…</div>
-              ) : previewUrl ? (
-                preview?.mime === 'application/pdf' ? (
-                  <iframe src={previewUrl} title="pdf-preview" className="h-[65vh] w-full rounded border" />
+              ) : previewKind === 'docx' ? (
+                <div ref={docxEl} className="docx-preview-box" />
+              ) : previewKind === 'html' ? (
+                <iframe
+                  srcDoc={previewHtml}
+                  sandbox=""
+                  title="html-preview"
+                  className="h-[65vh] w-full rounded border bg-white"
+                />
+              ) : previewKind === 'xlsx' ? (
+                <div className="xlsx-preview" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+              ) : previewKind === 'image' || previewKind === 'pdf' ? (
+                previewKind === 'pdf' ? (
+                  <iframe src={previewUrl ?? undefined} title="pdf-preview" className="h-[65vh] w-full rounded border" />
                 ) : (
-                  <img src={previewUrl} alt={preview?.filename ?? ''} className="mx-auto max-h-[65vh] rounded object-contain" />
+                  <img src={previewUrl ?? undefined} alt={preview?.filename ?? ''} className="mx-auto max-h-[65vh] rounded object-contain" />
                 )
-              ) : previewHtml ? (
-                <div className="preview-docx" dangerouslySetInnerHTML={{ __html: previewHtml }} />
               ) : previewText ? (
                 <pre className="whitespace-pre-wrap text-sm">{previewText}</pre>
               ) : (
