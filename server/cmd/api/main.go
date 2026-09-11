@@ -71,6 +71,11 @@ func main() {
 	// LLM Provider：OPENAI_API_KEY 存在 → OpenAI 兼容；否则 Demo。
 	prov := model.New(cfg)
 
+	// API Key 热替换：优先从持久化文件加载；不存在则用 .env 的值写入文件
+	if err := model.InitAPIKey(cfg.APIKeyFile, cfg.OpenAIAPIKey); err != nil {
+		log.Printf("⚠ apikey init: %v（后边可用 /v1/admin/apikey 替换）", err)
+	}
+
 	// Python 沙箱客户端（CODEX_URL 配置后启用 execute_code；作为"挂件"可动态摘除/恢复）
 	var codexCli *codex.Client
 	if cfg.CodexURL != "" {

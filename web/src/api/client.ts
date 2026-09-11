@@ -433,6 +433,11 @@ export function fetchDeepSeekBalance(): Promise<{ balance: BalanceInfo }> {
   return request('/v1/monitor/balance', { auth: true })
 }
 
+// 热替换 API Key（仅 admin，验证连通性后即时生效）
+export function replaceAPIKey(apiKey: string): Promise<{ status: string; message: string }> {
+  return request('/v1/admin/apikey', { method: 'PUT', body: { api_key: apiKey }, auth: true })
+}
+
 // ---- 对话审计（仅 admin） ----
 
 export interface AuditConv {
