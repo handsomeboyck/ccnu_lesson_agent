@@ -120,6 +120,8 @@ type MetricEvent struct {
 	CacheHitTokens   int64 // 前缀缓存命中 token（DeepSeek）
 	CacheMissTokens  int64 // 前缀缓存未命中 token
 	DurationMs       int64
+	UserID           string // 所属用户
+	ConversationID   string // 所属会话
 	At               time.Time
 }
 
@@ -228,4 +230,27 @@ type Store interface {
 	MetricSummary(ctx context.Context, hours int) (*MetricSummary, error)
 	MetricDistribution(ctx context.Context, hours int) (*MetricDistribution, error)
 	RecentLatencies(ctx context.Context, hours int, limit int) ([]int64, error)
+	TotalCost(ctx context.Context, hours int) (*CostSummary, error)
+	UserCosts(ctx context.Context, hours int, limit int) ([]UserCostItem, error)
+}
+
+// CostSummary 总成本统计。
+type CostSummary struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	CacheHitTokens   int64 `json:"cache_hit_tokens"`
+	CacheMissTokens  int64 `json:"cache_miss_tokens"`
+	EstimatedCostCNY string `json:"estimated_cost_cny"` // 估算费用（基于定价）
+	ConversationCount int64 `json:"conversation_count"`
+}
+
+// UserCostItem 单用户成本项。
+type UserCostItem struct {
+	UserID      string `json:"user_id"`
+	Username    string `json:"username,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	PromptTokens int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	EstimatedCostCNY string `json:"estimated_cost_cny"`
+	ConversationCount int64 `json:"conversation_count"`
 }

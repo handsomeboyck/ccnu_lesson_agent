@@ -29,7 +29,7 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 		genCancel: map[string]context.CancelFunc{}, genStart: map[string]time.Time{},
 		streams: newStreamRegistry()}
 	chatH.attach = &chatAttachmentService{store: st, uploadDir: cfg.UploadDir}
-	monH := &monitorService{store: st, codex: codexCli, started: time.Now()}
+	monH := newMonitorService(st, codexCli, cfg.OpenAIBaseURL, cfg.OpenAIAPIKey)
 
 	mux := http.NewServeMux()
 
@@ -87,6 +87,8 @@ func New(cfg *config.Config, authSvc *auth.Service, st store.Store, prov model.P
 	mux.HandleFunc("GET /v1/monitor/conversations/export-all", authH.requireRole(monH.auditExportAll, store.RoleAdmin))
 	mux.HandleFunc("GET /v1/monitor/conversations/{id}", authH.requireRole(monH.auditTranscript, store.RoleAdmin))
 	mux.HandleFunc("GET /v1/monitor/conversations/{id}/export", authH.requireRole(monH.auditExport, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/balance", authH.requireRole(monH.balance, store.RoleAdmin))
+	mux.HandleFunc("GET /v1/monitor/user-costs", authH.requireRole(monH.userCosts, store.RoleAdmin))
 
 	handler := http.Handler(mux)
 	handler = corsMiddleware(cfg.CORSOrigins, handler)

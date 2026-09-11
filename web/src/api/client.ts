@@ -399,6 +399,24 @@ export interface MonitorOverview {
     }
     containers?: { name: string; cpu: string; mem: string; mem_perc: string }[]
   }
+  // 成本统计（后端注入）
+  cost?: {
+    prompt_tokens: number
+    completion_tokens: number
+    cache_hit_tokens: number
+    cache_miss_tokens: number
+    estimated_cost_cny: string
+    conversation_count: number
+  }
+  user_costs?: {
+    user_id: string
+    username: string
+    display_name: string
+    prompt_tokens: number
+    completion_tokens: number
+    estimated_cost_cny: string
+    conversation_count: number
+  }[]
 }
 
 export function fetchMonitorOverview(): Promise<MonitorOverview> {
