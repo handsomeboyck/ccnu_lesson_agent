@@ -7,9 +7,11 @@ import {
   exportAuditConversation,
   fetchAuditTranscript,
   fetchMonitorOverview,
+  fetchDeepSeekBalance,
   listAuditConversations,
   type AuditConv,
   type AuditMsg,
+  type BalanceInfo,
   type MonitorOverview,
 } from '../api/client'
 import MobileTabBar from '../components/MobileTabBar'
@@ -56,6 +58,8 @@ function HealthDot({ status }: { status: string }) {
 export default function MonitorPage() {
   const [data, setData] = useState<MonitorOverview | null>(null)
   const [error, setError] = useState('')
+  const [balance, setBalance] = useState<BalanceInfo | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
 
   async function load() {
     try {
@@ -157,6 +161,30 @@ export default function MonitorPage() {
             <span className="health-item mute">
               运行时长 {(data?.uptime_sec ?? 0) >= 3600 ? `${(data!.uptime_sec / 3600).toFixed(1)} 小时` : `${Math.floor((data?.uptime_sec ?? 0) / 60)} 分钟`}
             </span>
+            <button
+              className="health-item ml-auto cursor-pointer rounded-md border border-border px-3 py-1 text-xs hover:bg-accent disabled:opacity-50"
+              disabled={balanceLoading}
+              onClick={async () => {
+                setBalanceLoading(true)
+                try {
+                  const r = await fetchDeepSeekBalance()
+                  setBalance(r.balance)
+                } catch { setBalance({ is_available: false, error: '查询失败' } as BalanceInfo) }
+                finally { setBalanceLoading(false) }
+              }}
+            >
+              💰 {balanceLoading ? '查询中…' : balance ? '刷新余额' : '查询 DeepSeek 余额'}
+            </button>
+            {balance && !balance.error && (
+              <span className="health-item text-xs">
+                {balance.balance_infos?.map((b) => (
+                  <span key={b.currency} className="ml-2 font-medium">
+                    {b.total_balance} {b.currency}（赠送 {b.granted_balance} · 充值 {b.topped_up_balance}）
+                  </span>
+                ))}
+              </span>
+            )}
+            {balance?.error && <span className="health-item text-xs text-destructive">余额查询失败</span>}
           </div>
         </section>
 

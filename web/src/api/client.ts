@@ -423,6 +423,16 @@ export function fetchMonitorOverview(): Promise<MonitorOverview> {
   return request('/v1/monitor/overview', { auth: true })
 }
 
+// 查询 DeepSeek 账户余额
+export interface BalanceInfo {
+  is_available: boolean
+  balance_infos?: { currency: string; total_balance: string; granted_balance: string; topped_up_balance: string }[]
+  error?: string
+}
+export function fetchDeepSeekBalance(): Promise<{ balance: BalanceInfo }> {
+  return request('/v1/monitor/balance', { auth: true })
+}
+
 // ---- 对话审计（仅 admin） ----
 
 export interface AuditConv {
