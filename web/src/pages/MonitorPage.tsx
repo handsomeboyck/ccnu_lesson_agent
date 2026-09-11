@@ -8,6 +8,7 @@ import {
   fetchAuditTranscript,
   fetchMonitorOverview,
   fetchDeepSeekBalance,
+  replaceAPIKey,
   listAuditConversations,
   type AuditConv,
   type AuditMsg,
@@ -60,6 +61,9 @@ export default function MonitorPage() {
   const [error, setError] = useState('')
   const [balance, setBalance] = useState<BalanceInfo | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
+  const [newKey, setNewKey] = useState('')
+  const [keyMsg, setKeyMsg] = useState('')
+  const [keyLoading, setKeyLoading] = useState(false)
 
   async function load() {
     try {
@@ -191,6 +195,24 @@ export default function MonitorPage() {
             )}
             {balance?.error && <span className="health-item text-xs text-destructive">余额查询失败</span>}
           </div>
+          {/* 更换 API Key（仅 admin） */}
+          <details className="mt-2 text-xs">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">🔑 更换 API Key</summary>
+            <div className="mt-2 flex items-center gap-2">
+              <input type="password" value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="sk-..." className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs" />
+              <button className="rounded bg-ccnu-blue px-3 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50" disabled={!newKey.trim() || keyLoading}
+                onClick={async () => {
+                  setKeyLoading(true); setKeyMsg('')
+                  try {
+                    const r = await replaceAPIKey(newKey.trim())
+                    setKeyMsg('✅ ' + r.message); setNewKey('')
+                  } catch (e) { setKeyMsg('❌ ' + (e instanceof Error ? e.message : '验证失败')) }
+                  finally { setKeyLoading(false) }
+                }}
+              >{keyLoading ? '验证中…' : '验证并替换'}</button>
+            </div>
+            {keyMsg && <p className="mt-1 text-muted-foreground">{keyMsg}</p>}
+          </details>
         </section>
 
         {/* Agent 指标 */}
